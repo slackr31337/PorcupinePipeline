@@ -1,3 +1,3 @@
 #!/bin/bash
 
-docker build -t porcupine-pipeline ./docker/.
+docker build -f ./docker/Dockerfile -t porcupine-pipeline .
