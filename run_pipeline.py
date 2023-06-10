@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 import time
 from datetime import datetime
+import warnings
 
 
 import aiohttp
@@ -22,7 +23,7 @@ import pvporcupine
 from pvrecorder import PvRecorder
 from playsound import playsound
 
-
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 _LOGGER = logging.getLogger(__name__)
 
 
