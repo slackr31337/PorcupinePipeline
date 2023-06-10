@@ -31,7 +31,7 @@ RUN apt-get update -y && \
     apt-get clean
 
 RUN echo "deb http://ftp.debian.org/debian sid main" >> /etc/apt/sources.list &&\
-    apt-get update && apt-get -t sid install libc6 libc6-dev libc6-dbg
+    apt-get update && apt-get -y --no-install-recommends -t sid install libc6 libc6-dev libc6-dbg
 
 RUN mkdir /app
 WORKDIR /app
