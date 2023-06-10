@@ -71,8 +71,12 @@ optional arguments:
 
 ## Example
 
-export ACCESS_KEY='##############################'  # From Picovoice for porcupine wake word detection
-export TOKEN='###########################'          # From Home-Assistant long-lived access token
+export ACCESS_KEY='##############################'
+    - From Picovoice for porcupine wake word detection
+
+export TOKEN='###########################'
+    - From Home-Assistant long-lived access token
+
 
 python3 ./run_pipeline.py --server `home-assistant-host` -pipeline 'OpenAI' --follow-up
 
@@ -80,11 +84,15 @@ python3 ./run_pipeline.py --server `home-assistant-host` -pipeline 'OpenAI' --fo
 
 
 Based off:
+
     - https://github.com/synesthesiam/homeassistant-pipeline/blob/master/audio_to_audio.py
+
     - https://github.com/Picovoice/porcupine/blob/master/demo/python/porcupine_demo_mic.py
 
 Uses:
+
     - https://github.com/Picovoice/porcupine
+
     - AccessKey obtained from Picovoice Console (https://console.picovoice.ai/)
 
 
