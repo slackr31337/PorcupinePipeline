@@ -1,5 +1,4 @@
-logging
 aiohttp==3.8.4
-pvporcupine
-pvrecorder
-playsound
+pvporcupine==2.2.1
+pvrecorder==1.1.1
+playsound==1.3.0
