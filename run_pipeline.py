@@ -13,6 +13,7 @@ import audioop
 import threading
 from dataclasses import dataclass, field
 from typing import Optional
+import time
 from datetime import datetime
 
 
@@ -67,19 +68,43 @@ async def main() -> None:
         help="Number of samples to read at a time from stdin",
     )
     parser.add_argument(
-        "--token", required=True, help="Home-assistant authentication token"
+        "--token",
+        default=os.environ.get("TOKEN", "missing_token"),
+        help="Home-assistant authentication token",
     )
     parser.add_argument(
         "--pipeline", help="Name of HA pipeline to use (default: preferred)"
     )
     parser.add_argument(
-        "--server", default="localhost:8123", help="host:port of Home-assistant server"
+        "--follow-up",
+        dest="follow_up",
+        action="store_true",
+        help="Keep pipeline open after keyword for follow up",
+    )
+    parser.set_defaults(follow_up=False)
+    parser.add_argument(
+        "--server",
+        default=os.environ.get("SERVER", "localhost"),
+        help="host of Home-assistant server",
     )
     parser.add_argument(
-        "--access_key",
+        "--server-port",
+        dest="server_port",
+        type=int,
+        default=os.environ.get("SERVER_PORT", 8123),
+        help="port of Home-assistant server",
+    )
+    parser.add_argument(
+        "--server-https",
+        action="store_true",
+        default=bool(os.environ.get("SERVER_HTTPS")),
+        help="Use https to connect to Home-assistant server",
+    )
+    parser.add_argument(
+        "--access-key",
         dest="access_key",
+        default=os.environ.get("ACCESS_KEY", "missing_access_key"),
         help="AccessKey obtained from Picovoice Console (https://console.picovoice.ai/)",
-        required=True,
     )
     parser.add_argument(
         "--keywords",
@@ -88,6 +113,7 @@ async def main() -> None:
             "List of default keywords for detection. "
             f"Available keywords: {sorted(pvporcupine.KEYWORDS)}"
         ),
+        default=list(os.environ.get("KEYWORDS", ["porcupine", "computer"])),
         choices=sorted(pvporcupine.KEYWORDS),
         metavar="",
     )
@@ -126,12 +152,12 @@ async def main() -> None:
         default=None,
     )
     parser.add_argument(
-        "-aidx",
-        "--audio-device-index",
-        dest="audio_device_index",
+        "-adev",
+        "--audio-device",
+        dest="audio_device",
         help="Index of input audio device. (Default: use default audio device)",
         type=int,
-        default=-1,
+        default=os.environ.get("AUDIO_DEVICE", -1),
     )
     parser.add_argument(
         "--output-path",
@@ -152,6 +178,12 @@ async def main() -> None:
     )
 
     args = parser.parse_args()
+    proto = "http"
+    if args.server_https:
+        proto += "s"
+
+    args.ha_url = f"{proto}://{args.server}:{args.server_port}"
+
     _LOGGER.setLevel(level=logging.DEBUG if args.debug else logging.INFO)
     if args.debug:
         log_format = "[%(filename)12s: %(funcName)18s()] %(levelname)5s %(message)s"
@@ -275,8 +307,7 @@ async def loop_pipeline(state: State) -> None:
     """Run pipeline in a loop, executing voice commands and printing TTS URLs."""
 
     args = state.args
-
-    url = f"ws://{args.server}/api/websocket"
+    url = f"ws://{args.server}:{args.server_port}/api/websocket"
     async with aiohttp.ClientSession() as session:
         async with session.ws_connect(url) as websocket:
             _LOGGER.debug("Authenticating: %s", url)
@@ -330,7 +361,9 @@ async def loop_pipeline(state: State) -> None:
                 while not state.audio_queue.empty():
                     state.audio_queue.get_nowait()
 
-                state.recording = True
+                count = 0
+                while not state.recording:
+                    time.sleep(0.1)
 
                 # Run pipeline
                 _LOGGER.debug("Starting pipeline")
@@ -384,19 +417,24 @@ async def loop_pipeline(state: State) -> None:
                         event = receive_event_task.result()
                         _LOGGER.debug(event)
                         event_type = event["event"]["type"]
+
                         if event_type == "run-end":
-                            state.recording = False
-                            _LOGGER.debug("Pipeline finished")
+                            count += 1
+                            _LOGGER.debug("[%s] Pipeline finished", count)
+                            if args.follow_up and count < 4:
+                                state.recording = True
+                            else:
+                                state.recording = False
                             break
 
                         event_data = event["event"].get("data")
                         if event_type == "error":
-                            raise RuntimeError(event_data.get("message"))
+                            _LOGGER.error(event_data.get("message"))
+                            state.recording = False
 
                         if event_type == "tts-end":
-                            state.recording = False
                             # URL of text to speech audio response (relative to server)
-                            tts_url = f"http://{args.server}"
+                            tts_url = args.ha_url
                             tts_url += event_data["tts_output"].get("url")
                             _LOGGER.info("Play: %s", tts_url)
                             playsound(tts_url)
@@ -425,7 +463,7 @@ def read_audio(
 
         _LOGGER.debug("Reading audio")
         recorder = PvRecorder(
-            device_index=args.audio_device_index, frame_length=porcupine.frame_length
+            device_index=args.audio_device, frame_length=porcupine.frame_length
         )
 
         recorder.start()
