@@ -2,3 +2,4 @@ aiohttp==3.8.4
 pvporcupine==2.2.1
 pvrecorder==1.1.1
 playsound==1.3.0
+pygobject==3.38.0
