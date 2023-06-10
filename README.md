@@ -71,14 +71,15 @@ optional arguments:
 
 ## Example
 
-export ACCESS_KEY='##############################'
+    export ACCESS_KEY='##############################'
     - From Picovoice for porcupine wake word detection
 
-export TOKEN='###########################'
+    export TOKEN='###########################'
     - From Home-Assistant long-lived access token
 
+Run:
 
-python3 ./run_pipeline.py --server `home-assistant-host` -pipeline 'OpenAI' --follow-up
+    python3 ./run_pipeline.py --server `home-assistant-host` -pipeline 'OpenAI' --follow-up
 
 
 
