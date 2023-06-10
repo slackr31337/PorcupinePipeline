@@ -2,3 +2,4 @@ logging
 aiohttp==3.8.4
 pvporcupine
 pvrecorder
+playsound
