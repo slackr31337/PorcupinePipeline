@@ -67,7 +67,6 @@ optional arguments:
 
     --debug           Print DEBUG messages to console
 
-
 ## Example
 
 Export porcupine access_key and Home-Assistant token
