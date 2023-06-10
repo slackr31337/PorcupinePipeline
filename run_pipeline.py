@@ -129,7 +129,7 @@ async def main() -> None:
         "-aidx",
         "--audio-device-index",
         dest="audio_device_index",
-        help="Index of input audio device.",
+        help="Index of input audio device. (Default: use default audio device)",
         type=int,
         default=-1,
     )
@@ -152,7 +152,6 @@ async def main() -> None:
     )
 
     args = parser.parse_args()
-    # logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
     _LOGGER.setLevel(level=logging.DEBUG if args.debug else logging.INFO)
     if args.debug:
         log_format = "[%(filename)12s: %(funcName)18s()] %(levelname)5s %(message)s"
