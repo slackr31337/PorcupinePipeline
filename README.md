@@ -3,11 +3,9 @@
 Use a raspberry pi and microphone to trigger a wake word
 for a Home-Assistant Voice Assistant pipeline conversation
 
-
+<https://www.home-assistant.io/voice_control/>
 
 ## Usage
-
-usage:
 
     run_pipeline.py
     [-h] [--rate RATE] [--width WIDTH] [--channels CHANNELS] [--samples-per-chunk SAMPLES_PER_CHUNK]
