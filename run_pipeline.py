@@ -225,10 +225,19 @@ async def main() -> None:
 def get_porcupine(state: State) -> pvporcupine:
     """Listen for wake word and send audio to Home-Assistant"""
 
-    for i, device in enumerate(PvRecorder.get_audio_devices()):
-        _LOGGER.info("Device %d: %s", i, device)
-
     args = state.args
+    devices = {}
+    for idx, device in enumerate(PvRecorder.get_audio_devices()):
+        devices[idx] = device
+        _LOGGER.info("Device %d: %s", idx, device)
+
+    _id = args.audio_device
+    audio_device = devices.get(_id)
+    if not audio_device:
+        _LOGGER.error("Invalid audio device id: %s", _id)
+        return None
+
+    _LOGGER.info("Using Device %d: %s", _id, audio_device)
     if args.show_audio_devices:
         sys.exit(0)
 
@@ -309,7 +318,7 @@ async def loop_pipeline(state: State) -> None:
     url = f"ws://{args.server}:{args.server_port}/api/websocket"
     async with aiohttp.ClientSession() as session:
         async with session.ws_connect(url) as websocket:
-            _LOGGER.debug("Authenticating: %s", url)
+            _LOGGER.info("Authenticating: %s", url)
 
             msg = await websocket.receive_json()
             assert msg["type"] == "auth_required", msg
@@ -325,7 +334,7 @@ async def loop_pipeline(state: State) -> None:
             _LOGGER.debug(msg)
             assert msg["type"] == "auth_ok", msg
 
-            _LOGGER.info("Authenticated")
+            _LOGGER.info("Authenticated with Home Assistant successfully")
 
             message_id = 1
             pipeline_id: Optional[str] = None
@@ -354,7 +363,7 @@ async def loop_pipeline(state: State) -> None:
                     )
 
             # Pipeline loop
-            _LOGGER.info("Starting audio queue loop")
+            _LOGGER.info("Starting audio processing loop")
             while state.running:
                 # Clear audio queue
                 while not state.audio_queue.empty():
@@ -400,7 +409,6 @@ async def loop_pipeline(state: State) -> None:
                 receive_event_task = asyncio.create_task(websocket.receive_json())
                 while True:
                     audio_chunk = await state.audio_queue.get()
-                    _LOGGER.debug("New audio chunk")
 
                     # Prefix binary message with handler id
                     send_audio_task = asyncio.create_task(
@@ -428,14 +436,22 @@ async def loop_pipeline(state: State) -> None:
 
                         event_data = event["event"].get("data")
                         if event_type == "error":
-                            _LOGGER.error(event_data.get("message"))
+                            _LOGGER.info(event_data.get("message"))
                             state.recording = False
 
-                        if event_type == "tts-end":
+                        elif event_type == "stt-end":
+                            speech = event_data["stt_output"].get("text")
+                            _LOGGER.info(
+                                "[%s] Recongized speech: %s", datetime.now(), speech
+                            )
+
+                        elif event_type == "tts-end":
                             # URL of text to speech audio response (relative to server)
                             tts_url = args.ha_url
                             tts_url += event_data["tts_output"].get("url")
-                            _LOGGER.info("Play: %s", tts_url)
+                            _LOGGER.info(
+                                "[%s] Play response: %s", datetime.now(), tts_url
+                            )
                             playsound(tts_url)
 
                         receive_event_task = asyncio.create_task(
