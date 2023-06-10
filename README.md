@@ -84,19 +84,11 @@ Run:
 
     python3 ./run_pipeline.py --server `home-assistant-host` -pipeline 'OpenAI' --follow-up
 
-
-
-
 Based off:
 
     - https://github.com/synesthesiam/homeassistant-pipeline/blob/master/audio_to_audio.py
 
     - https://github.com/Picovoice/porcupine/blob/master/demo/python/porcupine_demo_mic.py
 
-Uses:
-
-    - https://github.com/Picovoice/porcupine
-
-    - AccessKey obtained from Picovoice Console (https://console.picovoice.ai/)
-
-
+    https://github.com/Picovoice/porcupine
+    AccessKey obtained from Picovoice Console (https://console.picovoice.ai/)
