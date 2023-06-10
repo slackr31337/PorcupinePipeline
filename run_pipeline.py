@@ -199,6 +199,8 @@ async def main() -> None:
     _LOGGER.info("Starting audio pipline for voice assistant")
     state = State(args=args)
     porcupine = get_porcupine(state)
+    if not porcupine:
+        return
 
     audio_thread = threading.Thread(
         target=read_audio,
@@ -259,33 +261,30 @@ def get_porcupine(state: State) -> pvporcupine:
         _LOGGER.error(
             "One or more arguments provided to Porcupine is invalid: %s", args
         )
-        _LOGGER.error(
-            "If all other arguments seem valid, ensure that '%s' is a valid AccessKey",
-            args.access_key,
-        )
-        raise err
+        _LOGGER.error(err)
+        return None
 
     except pvporcupine.PorcupineActivationError as err:
-        _LOGGER.error("AccessKey activation error")
-        raise err
+        _LOGGER.error("AccessKey activation error. %s", err)
+        return None
 
-    except pvporcupine.PorcupineActivationLimitError as err:
+    except pvporcupine.PorcupineActivationLimitError:
         _LOGGER.error(
             "AccessKey '%s' has reached it's temporary device limit", args.access_key
         )
-        raise err
+        return None
 
-    except pvporcupine.PorcupineActivationRefusedError as err:
+    except pvporcupine.PorcupineActivationRefusedError:
         _LOGGER.error("AccessKey '%s' refused", args.access_key)
-        raise err
+        return None
 
-    except pvporcupine.PorcupineActivationThrottledError as err:
+    except pvporcupine.PorcupineActivationThrottledError:
         _LOGGER.error("AccessKey '%s' has been throttled", args.access_key)
-        raise err
+        return None
 
-    except pvporcupine.PorcupineError as err:
+    except pvporcupine.PorcupineError:
         _LOGGER.error("Failed to initialize Porcupine")
-        raise err
+        return None
 
     _LOGGER.info("Porcupine version: %s", porcupine.version)
 

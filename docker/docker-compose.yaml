@@ -5,3 +5,5 @@ services:
     environment:
       TOKEN: home-assistant-token
       ACCESS_KEY: porcupine-access-key
+      AUDIO_DEVICE: 0
+      SERVER: home-assistant
