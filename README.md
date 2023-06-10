@@ -3,14 +3,16 @@
 Use a raspberry pi and microphone to trigger a wake word
 for a Home-Assistant Voice Assistant pipeline conversation
 
-# AccessKey obtained from Picovoice Console (https://console.picovoice.ai/)
-
 
 
 ## Usage
-usage: run_pipeline.py [-h] [--rate RATE] [--width WIDTH] [--channels CHANNELS] [--samples-per-chunk SAMPLES_PER_CHUNK] [--token TOKEN] [--pipeline PIPELINE] [--follow-up] [--server SERVER]
-                       [--server-port SERVER_PORT] [--server-https] [--access-key ACCESS_KEY] [--keywords  [...]] [--keyword-paths KEYWORD_PATHS [KEYWORD_PATHS ...]] [--library-path LIBRARY_PATH]
-                       [--model-path MODEL_PATH] [--sensitivities SENSITIVITIES [SENSITIVITIES ...]] [-adev AUDIO_DEVICE] [--output-path OUTPUT_PATH] [--show-audio-devices] [-d]
+
+usage: run_pipeline.py
+    [-h] [--rate RATE] [--width WIDTH] [--channels CHANNELS] [--samples-per-chunk SAMPLES_PER_CHUNK]
+    [--token TOKEN] [--pipeline PIPELINE] [--follow-up] [--server SERVER] [--server-port SERVER_PORT] [--server-https]
+    [--access-key ACCESS_KEY] [--keywords  [...]] [--keyword-paths KEYWORD_PATHS [KEYWORD_PATHS ...]] [--library-path LIBRARY_PATH]
+    [--model-path MODEL_PATH] [--sensitivities SENSITIVITIES [SENSITIVITIES ...]] [-adev AUDIO_DEVICE] [--output-path OUTPUT_PATH]
+    [--show-audio-devices] [-d]
 
 optional arguments:
 
@@ -75,6 +77,14 @@ export TOKEN='###########################'          # From Home-Assistant long-l
 python3 ./run_pipeline.py --server `home-assistant-host` -pipeline 'OpenAI' --follow-up
 
 
-Based off: https://github.com/synesthesiam/homeassistant-pipeline/blob/master/audio_to_audio.py
-Uses: https://github.com/Picovoice/porcupine
+
+
+Based off:
+    - https://github.com/synesthesiam/homeassistant-pipeline/blob/master/audio_to_audio.py
+    - https://github.com/Picovoice/porcupine/blob/master/demo/python/porcupine_demo_mic.py
+
+Uses:
+    - https://github.com/Picovoice/porcupine
+    - AccessKey obtained from Picovoice Console (https://console.picovoice.ai/)
+
 
