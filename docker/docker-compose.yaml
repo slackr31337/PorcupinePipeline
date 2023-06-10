@@ -7,3 +7,4 @@ services:
       ACCESS_KEY: porcupine-access-key
       AUDIO_DEVICE: 0
       SERVER: home-assistant
+      SERVER_PORT: 8123
