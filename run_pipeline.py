@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import sys
+import struct
 import logging
 import argparse
 import asyncio
@@ -12,19 +13,16 @@ import audioop
 import threading
 from dataclasses import dataclass, field
 from typing import Optional
+from datetime import datetime
+
 
 import aiohttp
 import pvporcupine
 from pvrecorder import PvRecorder
+from playsound import playsound
 
 
 _LOGGER = logging.getLogger(__name__)
-log_stream = logging.StreamHandler(sys.stdout)
-formatter = logging.Formatter(
-    "[%(filename)18s: %(funcName)18s()] %(levelname)5s %(message)s"
-)
-log_stream.setFormatter(formatter)
-_LOGGER.addHandler(log_stream)
 
 
 ##########################################
@@ -36,7 +34,6 @@ class State:
     running: bool = True
     recording: bool = False
     audio_queue: asyncio.Queue[bytes] = field(default_factory=asyncio.Queue)
-    porcupine: pvporcupine
 
 
 ##########################################
@@ -46,24 +43,25 @@ async def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--rate",
-        required=True,
         type=int,
+        default=16000,
         help="Rate of input audio (hertz)",
     )
     parser.add_argument(
         "--width",
-        required=True,
         type=int,
+        default=2,
         help="Width of input audio samples (bytes)",
     )
     parser.add_argument(
         "--channels",
-        required=True,
         type=int,
+        default=1,
         help="Number of input audio channels",
     )
     parser.add_argument(
         "--samples-per-chunk",
+        dest="samples_per_chunk",
         type=int,
         default=1024,
         help="Number of samples to read at a time from stdin",
@@ -79,6 +77,7 @@ async def main() -> None:
     )
     parser.add_argument(
         "--access_key",
+        dest="access_key",
         help="AccessKey obtained from Picovoice Console (https://console.picovoice.ai/)",
         required=True,
     )
@@ -93,7 +92,8 @@ async def main() -> None:
         metavar="",
     )
     parser.add_argument(
-        "--keyword_paths",
+        "--keyword-paths",
+        dest="keyword_paths",
         nargs="+",
         help=(
             "Absolute paths to keyword model files. If not set "
@@ -101,14 +101,16 @@ async def main() -> None:
         ),
     )
     parser.add_argument(
-        "--library_path",
+        "--library-path",
+        dest="library_path",
         help=(
             "Absolute path to dynamic library. "
             "Default: using the library provided by `pvporcupine`"
         ),
     )
     parser.add_argument(
-        "--model_path",
+        "--model-path",
+        dest="model_path",
         help="Absolute path to the file containing model parameters. "
         "Default: using the library provided by `pvporcupine`",
     )
@@ -124,17 +126,24 @@ async def main() -> None:
         default=None,
     )
     parser.add_argument(
-        "--audio_device_index",
+        "-aidx",
+        "--audio-device-index",
+        dest="audio_device_index",
         help="Index of input audio device.",
         type=int,
         default=-1,
     )
     parser.add_argument(
-        "--output_path",
+        "--output-path",
+        dest="output_path",
         help="Absolute path to recorded audio for debugging.",
         default=None,
     )
-    parser.add_argument("--show_audio_devices", action="store_true")
+    parser.add_argument(
+        "--show-audio-devices",
+        dest="show_audio_devices",
+        action="store_true",
+    )
     parser.add_argument(
         "-d",
         "--debug",
@@ -143,18 +152,26 @@ async def main() -> None:
     )
 
     args = parser.parse_args()
-    logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
+    # logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
+    _LOGGER.setLevel(level=logging.DEBUG if args.debug else logging.INFO)
+    if args.debug:
+        log_format = "[%(filename)12s: %(funcName)18s()] %(levelname)5s %(message)s"
+    else:
+        log_format = "%(levelname)5s %(message)s"
+
+    log_stream = logging.StreamHandler(sys.stdout)
+    formatter = logging.Formatter(log_format)
+    log_stream.setFormatter(formatter)
+    _LOGGER.addHandler(log_stream)
     _LOGGER.debug(args)
 
-    # Start reading raw audio from stdin
-    state = State(args=args, porcupine=get_porcupine(args))
+    _LOGGER.info("Starting audio pipline for voice assistant")
+    state = State(args=args)
+    porcupine = get_porcupine(state)
 
     audio_thread = threading.Thread(
         target=read_audio,
-        args=(
-            state,
-            asyncio.get_running_loop(),
-        ),
+        args=(state, asyncio.get_running_loop(), porcupine),
         daemon=True,
     )
     audio_thread.start()
@@ -172,14 +189,15 @@ async def main() -> None:
 
 
 ##########################################
-def get_porcupine(args) -> pvporcupine:
+def get_porcupine(state: State) -> pvporcupine:
     """Listen for wake word and send audio to Home-Assistant"""
 
-    if args.show_audio_devices:
-        for i, device in enumerate(PvRecorder.get_audio_devices()):
-            _LOGGER.info("Device %d: %s", i, device)
+    for i, device in enumerate(PvRecorder.get_audio_devices()):
+        _LOGGER.info("Device %d: %s", i, device)
 
-        return None
+    args = state.args
+    if args.show_audio_devices:
+        sys.exit(0)
 
     if args.keyword_paths is None:
         if args.keywords is None:
@@ -238,6 +256,8 @@ def get_porcupine(args) -> pvporcupine:
         _LOGGER.error("Failed to initialize Porcupine")
         raise err
 
+    _LOGGER.info("Porcupine version: %s", porcupine.version)
+
     keywords = list()
     for item in keyword_paths:
         keyword_phrase_part = os.path.basename(item).replace(".ppn", "").split("_")
@@ -246,7 +266,7 @@ def get_porcupine(args) -> pvporcupine:
         else:
             keywords.append(keyword_phrase_part[0])
 
-    _LOGGER.info("Porcupine version: %s", porcupine.version)
+    _LOGGER.debug("keywords: %s", keywords)
 
     return porcupine
 
@@ -260,7 +280,7 @@ async def loop_pipeline(state: State) -> None:
     url = f"ws://{args.server}/api/websocket"
     async with aiohttp.ClientSession() as session:
         async with session.ws_connect(url) as websocket:
-            _LOGGER.debug("Authenticating")
+            _LOGGER.debug("Authenticating: %s", url)
 
             msg = await websocket.receive_json()
             assert msg["type"] == "auth_required", msg
@@ -280,6 +300,7 @@ async def loop_pipeline(state: State) -> None:
 
             message_id = 1
             pipeline_id: Optional[str] = None
+
             if args.pipeline:
                 # Get list of available pipelines and resolve name
                 await websocket.send_json(
@@ -304,6 +325,7 @@ async def loop_pipeline(state: State) -> None:
                     )
 
             # Pipeline loop
+            _LOGGER.info("Starting audio queue loop")
             while state.running:
                 # Clear audio queue
                 while not state.audio_queue.empty():
@@ -347,6 +369,7 @@ async def loop_pipeline(state: State) -> None:
                 receive_event_task = asyncio.create_task(websocket.receive_json())
                 while True:
                     audio_chunk = await state.audio_queue.get()
+                    _LOGGER.debug("New audio chunk")
 
                     # Prefix binary message with handler id
                     send_audio_task = asyncio.create_task(
@@ -367,13 +390,17 @@ async def loop_pipeline(state: State) -> None:
                             _LOGGER.debug("Pipeline finished")
                             break
 
+                        event_data = event["event"].get("data")
                         if event_type == "error":
-                            raise RuntimeError(event["event"]["data"]["message"])
+                            raise RuntimeError(event_data.get("message"))
 
                         if event_type == "tts-end":
+                            state.recording = False
                             # URL of text to speech audio response (relative to server)
-                            tts_url = event["event"]["data"]["tts_output"]["url"]
-                            print(tts_url)
+                            tts_url = f"http://{args.server}"
+                            tts_url += event_data["tts_output"].get("url")
+                            _LOGGER.info("Play: %s", tts_url)
+                            playsound(tts_url)
 
                         receive_event_task = asyncio.create_task(
                             websocket.receive_json()
@@ -384,11 +411,13 @@ async def loop_pipeline(state: State) -> None:
 
 
 ##########################################
-def read_audio(state: State, loop: asyncio.AbstractEventLoop) -> None:
+def read_audio(
+    state: State, loop: asyncio.AbstractEventLoop, porcupine: pvporcupine
+) -> None:
     """Reads chunks of raw audio from standard input."""
     try:
         args = state.args
-        porcupine = state.porcupine
+        keywords = args.keywords
         # bytes_per_chunk = args.samples_per_chunk * args.width * args.channels
         rate = args.rate
         width = args.width
@@ -401,17 +430,22 @@ def read_audio(state: State, loop: asyncio.AbstractEventLoop) -> None:
         )
 
         recorder.start()
+        state.recording = False
 
         while state.running:
-            # chunk = sys.stdin.buffer.read(bytes_per_chunk)
-            # if (not chunk) or (not state.running):
-            #    # Signal other thread to stop
-            #    state.audio_queue.put_nowait(bytes())
-            #    break
-            chunk = recorder.read()
-            result = porcupine.process(chunk)
+            pcm = recorder.read()
+            result = porcupine.process(pcm)
+            # _LOGGER.debug("porcupine result: %s", result)
+
             if result >= 0:
-                # if state.recording:
+                _LOGGER.info(
+                    "[%s] Detected keyword `%s`", datetime.now(), keywords[result]
+                )
+                state.recording = True
+
+            if state.recording:
+                chunk = struct.pack("h" * len(pcm), *pcm)
+
                 # Convert to 16Khz, 16-bit, mono
                 if channels != 1:
                     chunk = audioop.tomono(chunk, width, 1.0, 1.0)
