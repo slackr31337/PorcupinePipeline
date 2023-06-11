@@ -69,12 +69,13 @@ optional arguments:
 
 ## Example
 
-Required porcupine access_key and Home-Assistant token
+Required Porcupine access_key and Home-Assistant token
 
-    - From Picovoice for porcupine wake word detection
+    - From Picovoice access_key for Porcupine wake word detection
     - From Home-Assistant long-lived access token
 
 Run:
+
     cd /usr/src
     git clone <https://github.com/slackr31337/PorcupinePipeline.git>
 
