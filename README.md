@@ -7,10 +7,24 @@ for a conversation with a Home-Assistant Voice Assistant
 
 ## Usage
 
-    run_pipeline.py
-    [-h] [--token TOKEN] [--pipeline PIPELINE] [--follow-up] [--server SERVER] [--server-port SERVER_PORT] [--server-https]
-    [--access-key ACCESS_KEY] [--keywords  [...]] [--keyword-paths KEYWORD_PATHS [KEYWORD_PATHS ...]] [--library-path LIBRARY_PATH]
-    [--model-path MODEL_PATH] [--sensitivities SENSITIVITIES [SENSITIVITIES ...]] [--dev AUDIO_DEVICE] [--rate RATE] [--width WIDTH] [--channels CHANNELS] [--samples-per-chunk SAMPLES_PER_CHUNK [--output-path OUTPUT_PATH] [--show-audio-devices] [-d]
+    python3 voice_pipeline.py [-h]
+        [--token TOKEN]
+        [--pipeline PIPELINE]
+        [--follow-up]
+        [--server SERVER]
+        [--server-port SERVER_PORT]
+        [--server-https]
+        [--dev AUDIO_DEVICE]
+        [--show-audio-devices] 
+        [--access-key ACCESS_KEY]
+        [--keywords  [...]]
+        [--keyword-paths KEYWORD_PATHS [KEYWORD_PATHS ...]]
+        [--library-path LIBRARY_PATH] [--model-path MODEL_PATH]
+        [--sensitivities SENSITIVITIES [SENSITIVITIES ...]]
+        [--rate RATE] [--width WIDTH] [--channels CHANNELS]
+        [--samples-per-chunk SAMPLES_PER_CHUNK]
+        [--output-path OUTPUT_PATH]
+        [-d]
 
 optional arguments:
 
