@@ -91,7 +91,7 @@ async def main() -> None:
             "List of default wakewords for detection. "
             f"Available keywords: {sorted(pvporcupine.KEYWORDS)}"
         ),
-        default=list(os.environ.get("KEYWORDS", ["porcupine", "computer"])),
+        default=list(os.environ.get("KEYWORDS", list(pvporcupine.KEYWORDS))),
         choices=sorted(pvporcupine.KEYWORDS),
         metavar="",
     )
@@ -344,6 +344,8 @@ async def loop_pipeline(state: State) -> None:
             pipeline_id: Optional[str] = None
 
             if args.pipeline:
+                _LOGGER.info("Using Home-Assistant pipeline %s", args.pipeline)
+
                 # Get list of available pipelines and resolve name
                 await websocket.send_json(
                     {
@@ -378,7 +380,9 @@ async def loop_pipeline(state: State) -> None:
                     time.sleep(0.1)
 
                 # Run pipeline
-                _LOGGER.debug("Starting pipeline")
+                _LOGGER.info(
+                    "[%s] Listening and sending audio to voice pipeline", datetime.now()
+                )
 
                 pipeline_args = {
                     "type": "assist_pipeline/run",
@@ -440,8 +444,13 @@ async def loop_pipeline(state: State) -> None:
 
                         event_data = event["event"].get("data")
                         if event_type == "error":
-                            _LOGGER.info(event_data.get("message"))
                             state.recording = False
+                            _LOGGER.info(
+                                "[%s] %s. Listening stopped",
+                                datetime.now(),
+                                event_data.get("message"),
+                            )
+                            break
 
                         elif event_type == "stt-end":
                             speech = event_data["stt_output"].get("text")
@@ -490,14 +499,16 @@ def read_audio(
 
         while state.running:
             pcm = recorder.read()
-            result = porcupine.process(pcm)
-            # _LOGGER.debug("porcupine result: %s", result)
 
-            if result >= 0:
-                _LOGGER.info(
-                    "[%s] Detected keyword `%s`", datetime.now(), keywords[result]
-                )
-                state.recording = True
+            if not state.recording:
+                result = porcupine.process(pcm)
+                # _LOGGER.debug("porcupine result: %s", result)
+
+                if result >= 0:
+                    _LOGGER.info(
+                        "[%s] Detected keyword `%s`", datetime.now(), keywords[result]
+                    )
+                    state.recording = True
 
             if state.recording:
                 chunk = struct.pack("h" * len(pcm), *pcm)
