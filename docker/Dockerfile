@@ -27,7 +27,7 @@ FROM debian:bookworm-slim
 
 RUN apt-get update -y && \
     apt-get install -y --no-install-recommends \
-    python3 alsa-utils libsndfile1-dev && \
+    python3 alsa-base alsa-utils libsndfile1-dev && \
     apt-get clean
 
 #RUN echo "deb http://ftp.debian.org/debian sid main" >> /etc/apt/sources.list &&\
