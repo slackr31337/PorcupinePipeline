@@ -51,7 +51,7 @@ async def main() -> None:
     parser.add_argument(
         "--pipeline",
         help="Name of Home-Assistant voice assistant pipeline to use (default: preferred)",
-        default=os.environ.get("PIPELINE", "preferred"),
+        default=os.environ.get("PIPELINE"),
     )
     parser.add_argument(
         "--follow-up",
