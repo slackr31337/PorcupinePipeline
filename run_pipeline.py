@@ -51,6 +51,7 @@ async def main() -> None:
     parser.add_argument(
         "--pipeline",
         help="Name of Home-Assistant voice assistant pipeline to use (default: preferred)",
+        default=os.environ.get("PIPELINE", "preferred"),
     )
     parser.add_argument(
         "--follow-up",
@@ -159,7 +160,7 @@ async def main() -> None:
         dest="samples_per_chunk",
         type=int,
         default=1024,
-        help="Number of samples to read at a time from stdin",
+        help="Number of samples to read at a time",
     )
     parser.add_argument(
         "--output-path",
