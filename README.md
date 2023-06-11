@@ -82,6 +82,7 @@ Run:
     python3 ./run_pipeline.py --server `home-assistant-host` -pipeline 'OpenAI' --follow-up
 
 Docker:
+
     bash build.sh
     export ACCESS_KEY='my-picovoice-access-key'
     export TOKEN='my-home-assistant-token'
@@ -94,7 +95,7 @@ Docker:
         --device /dev/snd
         porcupine-pipeline
 
-Used code from the following projects:
+## Used code from the following projects:
 
     - https://github.com/synesthesiam/homeassistant-pipeline/blob/master/audio_to_audio.py
 
