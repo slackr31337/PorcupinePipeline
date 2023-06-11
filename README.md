@@ -78,14 +78,25 @@ Export porcupine access_key and Home-Assistant token
     - From Home-Assistant long-lived access token
 
 Run:
+    cd /usr/src
+    git clone https://github.com/slackr31337/PorcupinePipeline.git
 
+    export ACCESS_KEY='my-picovoice-access-key'
+    export TOKEN='my-home-assistant-token'
+    export SERVER=192.168.0.10
     python3 ./run_pipeline.py --server `home-assistant-host` -pipeline 'OpenAI' --follow-up
 
 Docker:
 
+    cd /usr/src
+    git clone https://github.com/slackr31337/PorcupinePipeline.git
+
+    cd PorcupinePipeline
     bash build.sh
+
     export ACCESS_KEY='my-picovoice-access-key'
     export TOKEN='my-home-assistant-token'
+
     docker run --rm \
         --env SERVER=192.168.0.10 \
         --env SERVER_PORT=8123 \
@@ -95,7 +106,7 @@ Docker:
         --device /dev/snd
         porcupine-pipeline
 
-## Used code from the following projects:
+## Used code from the following projects
 
     - https://github.com/synesthesiam/homeassistant-pipeline/blob/master/audio_to_audio.py
 
