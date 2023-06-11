@@ -1,7 +1,7 @@
 # PorcupinePipeline
 
 Use a raspberry pi and microphone to trigger a wake word
-for a Home-Assistant Voice Assistant pipeline conversation
+for a conversation with a Home-Assistant Voice Assistant
 
 <https://www.home-assistant.io/voice_control/>
 
@@ -68,7 +68,7 @@ optional arguments:
 
 ## Example
 
-Required Porcupine access_key and Home-Assistant token
+Required Authentication
 
     - From Picovoice access_key for Porcupine wake word detection
     - From Home-Assistant long-lived access token
@@ -83,7 +83,7 @@ Run:
     export SERVER=192.168.0.10
     export AUDIO_DEVICE=1
 
-    python3 ./run_pipeline.py --server `home-assistant-host` --pipeline 'OpenAI' --follow-up
+    python3 ./voice_pipeline.py --server `home-assistant-host` --pipeline 'OpenAI' --follow-up
 
 Docker:
 
@@ -115,6 +115,13 @@ Environment Variables:
     KEYWORDS
     AUDIO_DEVICE
     PIPELINE
+
+
+Tested with:
+
+    wyoming-piper <https://hub.docker.com/r/rhasspy/wyoming-piper>
+    wyoming-whisper <https://hub.docker.com/r/rhasspy/wyoming-whisper>
+    Home-Assistant 2023.06.1 <https://www.home-assistant.io/>
 
 ## Used code from the following projects
 

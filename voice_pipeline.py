@@ -88,7 +88,7 @@ async def main() -> None:
         "--keywords",
         nargs="+",
         help=(
-            "List of default keywords for detection. "
+            "List of default wakewords for detection. "
             f"Available keywords: {sorted(pvporcupine.KEYWORDS)}"
         ),
         default=list(os.environ.get("KEYWORDS", ["porcupine", "computer"])),
@@ -160,7 +160,7 @@ async def main() -> None:
         dest="samples_per_chunk",
         type=int,
         default=1024,
-        help="Number of samples to read at a time",
+        help="Number of audio samples to read at a time",
     )
     parser.add_argument(
         "--output-path",
