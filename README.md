@@ -81,7 +81,9 @@ Run:
     export ACCESS_KEY='my-picovoice-access-key'
     export TOKEN='my-home-assistant-token'
     export SERVER=192.168.0.10
-    python3 ./run_pipeline.py --server `home-assistant-host` -pipeline 'OpenAI' --follow-up
+    export AUDIO_DEVICE=1
+
+    python3 ./run_pipeline.py --server `home-assistant-host` --pipeline 'OpenAI' --follow-up
 
 Docker:
 
@@ -99,13 +101,20 @@ Docker:
         --env SERVER_PORT=8123 \
         --env AUDIO_DEVICE=3 \
         --env ACCESS_KEY=${ACCESS_KEY} \
-        --ENV TOKEN=${TOKEN} \
+        --env TOKEN=${TOKEN} \
         --device /dev/snd
         porcupine-pipeline
 
 Environment Variables:
 
-
+    SERVER
+    SERVER_PORT
+    SERVER_HTTPS
+    ACCESS_KEY
+    TOKEN
+    KEYWORDS
+    AUDIO_DEVICE
+    PIPELINE
 
 ## Used code from the following projects
 
