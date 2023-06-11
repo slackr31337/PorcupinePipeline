@@ -69,17 +69,14 @@ optional arguments:
 
 ## Example
 
-Export porcupine access_key and Home-Assistant token
+Required porcupine access_key and Home-Assistant token
 
-    export ACCESS_KEY='##############################'
     - From Picovoice for porcupine wake word detection
-
-    export TOKEN='###########################'
     - From Home-Assistant long-lived access token
 
 Run:
     cd /usr/src
-    git clone https://github.com/slackr31337/PorcupinePipeline.git
+    git clone <https://github.com/slackr31337/PorcupinePipeline.git>
 
     export ACCESS_KEY='my-picovoice-access-key'
     export TOKEN='my-home-assistant-token'
@@ -89,7 +86,7 @@ Run:
 Docker:
 
     cd /usr/src
-    git clone https://github.com/slackr31337/PorcupinePipeline.git
+    git clone <https://github.com/slackr31337/PorcupinePipeline.git>
 
     cd PorcupinePipeline
     bash build.sh
