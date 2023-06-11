@@ -44,37 +44,13 @@ async def main() -> None:
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--rate",
-        type=int,
-        default=16000,
-        help="Rate of input audio (hertz)",
-    )
-    parser.add_argument(
-        "--width",
-        type=int,
-        default=2,
-        help="Width of input audio samples (bytes)",
-    )
-    parser.add_argument(
-        "--channels",
-        type=int,
-        default=1,
-        help="Number of input audio channels",
-    )
-    parser.add_argument(
-        "--samples-per-chunk",
-        dest="samples_per_chunk",
-        type=int,
-        default=1024,
-        help="Number of samples to read at a time from stdin",
-    )
-    parser.add_argument(
         "--token",
         default=os.environ.get("TOKEN", "missing_token"),
-        help="Home-assistant authentication token",
+        help="Home-Assistant authentication token",
     )
     parser.add_argument(
-        "--pipeline", help="Name of HA pipeline to use (default: preferred)"
+        "--pipeline",
+        help="Name of Home-Assistant voice assistant pipeline to use (default: preferred)",
     )
     parser.add_argument(
         "--follow-up",
@@ -86,26 +62,26 @@ async def main() -> None:
     parser.add_argument(
         "--server",
         default=os.environ.get("SERVER", "localhost"),
-        help="host of Home-assistant server",
+        help="Hostname or IP address of Home-Assistant serve",
     )
     parser.add_argument(
         "--server-port",
         dest="server_port",
         type=int,
         default=os.environ.get("SERVER_PORT", 8123),
-        help="port of Home-assistant server",
+        help="TCP port of Home-Assistant server",
     )
     parser.add_argument(
         "--server-https",
         action="store_true",
         default=bool(os.environ.get("SERVER_HTTPS")),
-        help="Use https to connect to Home-assistant server",
+        help="Use https to connect to Home-Assistant server",
     )
     parser.add_argument(
         "--access-key",
         dest="access_key",
         default=os.environ.get("ACCESS_KEY", "missing_access_key"),
-        help="AccessKey obtained from Picovoice Console (https://console.picovoice.ai/)",
+        help="Access Key obtained from Picovoice Console (https://console.picovoice.ai/)",
     )
     parser.add_argument(
         "--keywords",
@@ -153,12 +129,37 @@ async def main() -> None:
         default=None,
     )
     parser.add_argument(
-        "-adev",
+        "--dev",
         "--audio-device",
         dest="audio_device",
-        help="Index of input audio device. (Default: use default audio device)",
+        help="Index number of input audio device. (Default: use system default audio device)",
         type=int,
         default=os.environ.get("AUDIO_DEVICE", -1),
+    )
+    parser.add_argument(
+        "--rate",
+        type=int,
+        default=16000,
+        help="Rate of input audio (hertz)",
+    )
+    parser.add_argument(
+        "--width",
+        type=int,
+        default=2,
+        help="Width of input audio samples (bytes)",
+    )
+    parser.add_argument(
+        "--channels",
+        type=int,
+        default=1,
+        help="Number of input audio channels",
+    )
+    parser.add_argument(
+        "--samples-per-chunk",
+        dest="samples_per_chunk",
+        type=int,
+        default=1024,
+        help="Number of samples to read at a time from stdin",
     )
     parser.add_argument(
         "--output-path",
@@ -169,6 +170,7 @@ async def main() -> None:
     parser.add_argument(
         "--show-audio-devices",
         dest="show_audio_devices",
+        help="Print available devices on system to record audio and exit",
         action="store_true",
     )
     parser.add_argument(
