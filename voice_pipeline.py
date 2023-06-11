@@ -376,8 +376,11 @@ async def loop_pipeline(state: State) -> None:
                     state.audio_queue.get_nowait()
 
                 count = 0
+                _LOGGER.info(
+                    "[%s] Waiting for wake word to trigger audio", datetime.now()
+                )
                 while not state.recording:
-                    time.sleep(0.1)
+                    time.sleep(0.2)
 
                 # Run pipeline
                 _LOGGER.info(
