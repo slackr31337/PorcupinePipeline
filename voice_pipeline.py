@@ -10,6 +10,7 @@ import logging
 import argparse
 import asyncio
 import audioop
+import ssl
 import threading
 from dataclasses import dataclass, field
 from typing import Optional
@@ -320,10 +321,15 @@ async def loop_pipeline(state: State) -> None:
 
     args = state.args
     url = f"ws://{args.server}:{args.server_port}/api/websocket"
-    async with aiohttp.ClientSession() as session:
-        async with session.ws_connect(url) as websocket:
-            _LOGGER.info("Authenticating: %s", url)
+    sslcontext = None
+    if args.server_https:
+        url = f"https://{args.server}:{args.server_port}/api/websocket"
+        sslcontext = ssl.create_default_context(purpose=ssl.Purpose.CLIENT_AUTH)
 
+    async with aiohttp.ClientSession() as session:
+        _LOGGER.info("Authenticating: %s", url)
+
+        async with session.ws_connect(url, ssl=sslcontext) as websocket:
             msg = await websocket.receive_json()
             assert msg["type"] == "auth_required", msg
 
