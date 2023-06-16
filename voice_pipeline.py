@@ -23,6 +23,7 @@ import aiohttp
 import pvporcupine
 from pvrecorder import PvRecorder
 from playsound import playsound
+from cli_args import get_cli_args
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 _LOGGER = logging.getLogger(__name__)
@@ -43,146 +44,7 @@ class State:
 async def main() -> None:
     """Main entry point."""
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--token",
-        default=os.environ.get("TOKEN", "missing_token"),
-        help="Home-Assistant authentication token",
-    )
-    parser.add_argument(
-        "--pipeline",
-        help="Name of Home-Assistant voice assistant pipeline to use (default: preferred)",
-        default=os.environ.get("PIPELINE"),
-    )
-    parser.add_argument(
-        "--follow-up",
-        dest="follow_up",
-        action="store_true",
-        help="Keep pipeline open after keyword for follow up",
-    )
-    parser.set_defaults(follow_up=False)
-    parser.add_argument(
-        "--server",
-        default=os.environ.get("SERVER", "localhost"),
-        help="Hostname or IP address of Home-Assistant serve",
-    )
-    parser.add_argument(
-        "--server-port",
-        dest="server_port",
-        type=int,
-        default=os.environ.get("SERVER_PORT", 8123),
-        help="TCP port of Home-Assistant server",
-    )
-    parser.add_argument(
-        "--server-https",
-        action="store_true",
-        default=bool(os.environ.get("SERVER_HTTPS")),
-        help="Use https to connect to Home-Assistant server",
-    )
-    parser.add_argument(
-        "--access-key",
-        dest="access_key",
-        default=os.environ.get("ACCESS_KEY", "missing_access_key"),
-        help="Access Key obtained from Picovoice Console (https://console.picovoice.ai/)",
-    )
-    parser.add_argument(
-        "--keywords",
-        nargs="+",
-        help=(
-            "List of default wakewords for detection. "
-            f"Available keywords: {sorted(pvporcupine.KEYWORDS)}"
-        ),
-        default=list(os.environ.get("KEYWORDS", list(pvporcupine.KEYWORDS))),
-        choices=sorted(pvporcupine.KEYWORDS),
-        metavar="",
-    )
-    parser.add_argument(
-        "--keyword-paths",
-        dest="keyword_paths",
-        nargs="+",
-        help=(
-            "Absolute paths to keyword model files. If not set "
-            "it will be populated from `--keywords` argument"
-        ),
-    )
-    parser.add_argument(
-        "--library-path",
-        dest="library_path",
-        help=(
-            "Absolute path to dynamic library. "
-            "Default: using the library provided by `pvporcupine`"
-        ),
-    )
-    parser.add_argument(
-        "--model-path",
-        dest="model_path",
-        help="Absolute path to the file containing model parameters. "
-        "Default: using the library provided by `pvporcupine`",
-    )
-    parser.add_argument(
-        "--sensitivities",
-        nargs="+",
-        help=(
-            "Sensitivities for detecting keywords. Each value should be a number "
-            "within [0, 1]. A higher sensitivity results in fewer misses at the cost "
-            "of increasing the false alarm rate. If not set 0.5 will be used."
-        ),
-        type=float,
-        default=None,
-    )
-    parser.add_argument(
-        "--dev",
-        "--audio-device",
-        dest="audio_device",
-        help="Index number of input audio device. (Default: use system default audio device)",
-        type=int,
-        default=os.environ.get("AUDIO_DEVICE", -1),
-    )
-    parser.add_argument(
-        "--rate",
-        type=int,
-        default=16000,
-        help="Rate of input audio (hertz)",
-    )
-    parser.add_argument(
-        "--width",
-        type=int,
-        default=2,
-        help="Width of input audio samples (bytes)",
-    )
-    parser.add_argument(
-        "--channels",
-        type=int,
-        default=1,
-        help="Number of input audio channels",
-    )
-    parser.add_argument(
-        "--samples-per-chunk",
-        dest="samples_per_chunk",
-        type=int,
-        default=1024,
-        help="Number of audio samples to read at a time",
-    )
-    parser.add_argument(
-        "--output-path",
-        dest="output_path",
-        help="Absolute path to recorded audio for debugging.",
-        default=None,
-    )
-    parser.add_argument(
-        "--show-audio-devices",
-        dest="show_audio_devices",
-        help="Print available devices on system to record audio and exit",
-        action="store_true",
-    )
-    parser.add_argument(
-        "-d",
-        "--debug",
-        action="store_true",
-        help="Print DEBUG messages to console",
-    )
-
-    args = parser.parse_args()
+    args = get_cli_args()
     proto = "http"
     if args.server_https:
         proto += "s"
@@ -201,12 +63,13 @@ async def main() -> None:
     _LOGGER.addHandler(log_stream)
     _LOGGER.debug(args)
 
-    _LOGGER.info("Starting audio pipline for voice assistant")
+    _LOGGER.info("Starting Porcupine listener")
     state = State(args=args)
     porcupine = get_porcupine(state)
     if not porcupine:
         return
 
+    _LOGGER.info("Starting audio pipline thread")
     audio_thread = threading.Thread(
         target=read_audio,
         args=(state, asyncio.get_running_loop(), porcupine),
@@ -320,11 +183,14 @@ async def loop_pipeline(state: State) -> None:
     """Run pipeline in a loop, executing voice commands and printing TTS URLs."""
 
     args = state.args
-    url = f"ws://{args.server}:{args.server_port}/api/websocket"
+    url = "ws"
+
     sslcontext = None
     if args.server_https:
-        url = f"https://{args.server}:{args.server_port}/api/websocket"
         sslcontext = ssl.create_default_context(purpose=ssl.Purpose.CLIENT_AUTH)
+        url = "https"
+
+    url += f"://{args.server}:{args.server_port}/api/websocket"
 
     async with aiohttp.ClientSession() as session:
         _LOGGER.info("Authenticating: %s", url)
@@ -492,10 +358,6 @@ def read_audio(
     try:
         args = state.args
         keywords = args.keywords
-        # bytes_per_chunk = args.samples_per_chunk * args.width * args.channels
-        rate = args.rate
-        width = args.width
-        channels = args.channels
         ratecv_state = None
 
         _LOGGER.debug("Reading audio")
@@ -523,18 +385,18 @@ def read_audio(
                 chunk = struct.pack("h" * len(pcm), *pcm)
 
                 # Convert to 16Khz, 16-bit, mono
-                if channels != 1:
-                    chunk = audioop.tomono(chunk, width, 1.0, 1.0)
+                if args.channels != 1:
+                    chunk = audioop.tomono(chunk, args.width, 1.0, 1.0)
 
-                if width != 2:
-                    chunk = audioop.lin2lin(chunk, width, 2)
+                if args.width != 2:
+                    chunk = audioop.lin2lin(chunk, args.width, 2)
 
-                if rate != 16000:
+                if args.rate != 16000:
                     chunk, ratecv_state = audioop.ratecv(
                         chunk,
                         2,
                         1,
-                        rate,
+                        args.rate,
                         16000,
                         ratecv_state,
                     )
