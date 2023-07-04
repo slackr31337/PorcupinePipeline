@@ -15,7 +15,6 @@ import threading
 from dataclasses import dataclass, field
 from typing import Optional
 import time
-from datetime import datetime
 import warnings
 
 
@@ -26,6 +25,8 @@ from playsound import playsound
 from cli_args import get_cli_args
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
+logging.raiseExceptions = False
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -55,12 +56,12 @@ async def main() -> None:
     if args.debug:
         log_format = "[%(filename)12s: %(funcName)18s()] %(levelname)5s %(message)s"
     else:
-        log_format = "%(levelname)5s %(message)s"
+        log_format = "%(asctime)s %(levelname)5s %(message)s"
 
     log_stream = logging.StreamHandler(sys.stdout)
-    formatter = logging.Formatter(log_format)
-    log_stream.setFormatter(formatter)
+    log_stream.setFormatter(logging.Formatter(log_format))
     _LOGGER.addHandler(log_stream)
+
     _LOGGER.debug(args)
 
     _LOGGER.info("Starting Porcupine listener")
@@ -248,16 +249,12 @@ async def loop_pipeline(state: State) -> None:
                     state.audio_queue.get_nowait()
 
                 count = 0
-                _LOGGER.info(
-                    "[%s] Waiting for wake word to trigger audio", datetime.now()
-                )
+                _LOGGER.info("Waiting for wake word to trigger audio")
                 while not state.recording:
                     time.sleep(0.2)
 
                 # Run pipeline
-                _LOGGER.info(
-                    "[%s] Listening and sending audio to voice pipeline", datetime.now()
-                )
+                _LOGGER.info("Listening and sending audio to voice pipeline")
 
                 pipeline_args = {
                     "type": "assist_pipeline/run",
@@ -321,25 +318,20 @@ async def loop_pipeline(state: State) -> None:
                         if event_type == "error":
                             state.recording = False
                             _LOGGER.info(
-                                "[%s] %s. Listening stopped",
-                                datetime.now(),
+                                "%s. Listening stopped",
                                 event_data.get("message"),
                             )
                             break
 
                         elif event_type == "stt-end":
                             speech = event_data["stt_output"].get("text")
-                            _LOGGER.info(
-                                "[%s] Recongized speech: %s", datetime.now(), speech
-                            )
+                            _LOGGER.info("Recongized speech: %s", speech)
 
                         elif event_type == "tts-end":
                             # URL of text to speech audio response (relative to server)
                             tts_url = args.ha_url
                             tts_url += event_data["tts_output"].get("url")
-                            _LOGGER.info(
-                                "[%s] Play response: %s", datetime.now(), tts_url
-                            )
+                            _LOGGER.info("Play response: %s", tts_url)
                             playsound(tts_url)
 
                         receive_event_task = asyncio.create_task(
@@ -369,16 +361,20 @@ def read_audio(
         state.recording = False
 
         while state.running:
-            pcm = recorder.read()
+            try:
+                pcm = recorder.read()
+
+            except OSError as err:
+                _LOGGER.error("Exception: %s", err)
+                state.running = False
+                break
 
             if not state.recording:
                 result = porcupine.process(pcm)
                 # _LOGGER.debug("porcupine result: %s", result)
 
                 if result >= 0:
-                    _LOGGER.info(
-                        "[%s] Detected keyword `%s`", datetime.now(), keywords[result]
-                    )
+                    _LOGGER.info("Detected keyword `%s`", keywords[result])
                     state.recording = True
 
             if state.recording:
