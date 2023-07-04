@@ -62,7 +62,7 @@ Docker:
         --env AUDIO_DEVICE=3 \
         --env ACCESS_KEY=${ACCESS_KEY} \
         --env TOKEN=${TOKEN} \
-        --device /dev/snd
+        --device /dev/snd \
         porcupine-pipeline
 
 Tested with:
