@@ -143,6 +143,7 @@ def get_cli_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--show-audio-devices",
+        "-L",
         dest="show_audio_devices",
         help="Print available devices on system to record audio and exit",
         action="store_true",
