@@ -19,9 +19,18 @@ Environment Variables:
     SERVER_HTTPS        Home-Assistant using https
     TOKEN               Home-Assistant long-lived access token
     PIPELINE            Home-Assistant voice pipeline name
+
     ACCESS_KEY          Picovoice access_key
     KEYWORDS            Wake words to trigger voice pipeline
+    KEYWORD_PATHS       Absolute paths to keyword model files
+    LIBRARY_PATH        Absolute path to dynamic library
+    MODEL_PATH          Absolute path to the file containing model parameters
+
     AUDIO_DEVICE        Index of audio device for microphone
+    AUDIO_RATE          Rate of input audio
+    AUDIO_WIDTH         Width of input audio sample
+    AUDIO_CHANNELS      Number of input audio channels
+    OUTPUT_PATH         Absolute path to recorded audio
 
 Run:
 

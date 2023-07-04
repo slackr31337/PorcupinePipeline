@@ -58,7 +58,7 @@ def get_cli_args() -> argparse.Namespace:
         "--keywords",
         nargs="+",
         help=(
-            "List of default wakewords for detection. "
+            "List of wake words for audio detection. "
             f"Available keywords: {sorted(pvporcupine.KEYWORDS)}"
         ),
         default=list(os.environ.get("KEYWORDS", list(pvporcupine.KEYWORDS))),
@@ -139,7 +139,7 @@ def get_cli_args() -> argparse.Namespace:
         "--output-path",
         dest="output_path",
         default=os.environ.get("OUTPUT_PATH"),
-        help="Absolute path to recorded audio for debugging.",
+        help="Absolute path to recorded audio (debugging).",
     )
     parser.add_argument(
         "--show-audio-devices",
