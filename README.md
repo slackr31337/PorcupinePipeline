@@ -12,6 +12,17 @@ Required Authentication
     - From Picovoice access_key for Porcupine wake word detection
     - From Home-Assistant long-lived access token
 
+Environment Variables:
+
+    SERVER              Home-Assistant FQDN
+    SERVER_PORT         Home-Assistant port
+    SERVER_HTTPS        Home-Assistant using https
+    TOKEN               Home-Assistant long-lived access token
+    PIPELINE            Home-Assistant voice pipeline name
+    ACCESS_KEY          Picovoice access_key
+    KEYWORDS            Wake words to trigger voice pipeline
+    AUDIO_DEVICE        Index of audio device for microphone
+
 Run:
 
     cd /usr/src
@@ -19,10 +30,11 @@ Run:
 
     export ACCESS_KEY='my-picovoice-access-key'
     export TOKEN='my-home-assistant-token'
-    export SERVER=192.168.0.10
+    export SERVER=home-assistant.local
+    export PIPELINE=OpenAI
     export AUDIO_DEVICE=1
 
-    python3 ./voice_pipeline.py --server `home-assistant-host` --pipeline 'OpenAI' --follow-up
+    python3 ./voice_pipeline.py --server home-assistant.local --pipeline 'OpenAI' --follow-up
 
 Docker:
 
@@ -43,18 +55,6 @@ Docker:
         --env TOKEN=${TOKEN} \
         --device /dev/snd
         porcupine-pipeline
-
-Environment Variables:
-
-    SERVER
-    SERVER_PORT
-    SERVER_HTTPS
-    ACCESS_KEY
-    TOKEN
-    KEYWORDS
-    AUDIO_DEVICE
-    PIPELINE
-
 
 Tested with:
 
