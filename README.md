@@ -46,14 +46,14 @@ Docker:
 
 Environment Variables:
 
-    SERVER      Home-Assistant FQDN
-    SERVER_PORT Home-Assistant port
-    SERVER_HTTPS    Home-Assistant using https
-    TOKEN   Home-Assistant long-lived access token
-    ACCESS_KEY  Picovoice access_key
-    KEYWORDS    Wake words to trigger voice pipeline
-    AUDIO_DEVICE    Index of audio device for microphone
-    PIPELINE    Home-Assistant voice pipeline name
+    -SERVER              Home-Assistant FQDN
+    -SERVER_PORT         Home-Assistant port
+    -SERVER_HTTPS        Home-Assistant using https
+    -TOKEN               Home-Assistant long-lived access token
+    -PIPELINE            Home-Assistant voice pipeline name
+    -ACCESS_KEY          Picovoice access_key
+    -KEYWORDS            Wake words to trigger voice pipeline
+    -AUDIO_DEVICE        Index of audio device for microphone
 
 Tested with:
 
