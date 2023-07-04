@@ -14,7 +14,6 @@ import ssl
 import threading
 from dataclasses import dataclass, field
 from typing import Optional
-import time
 import warnings
 
 
@@ -28,6 +27,13 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 logging.raiseExceptions = False
 
 _LOGGER = logging.getLogger(__name__)
+
+RESULT = "result"
+EVENT = "event"
+NAME = "name"
+DATA = "data"
+TYPE = "type"
+ID = "id"
 
 
 ##########################################
@@ -61,7 +67,6 @@ async def main() -> None:
     log_stream = logging.StreamHandler(sys.stdout)
     log_stream.setFormatter(logging.Formatter(log_format))
     _LOGGER.addHandler(log_stream)
-
     _LOGGER.debug(args)
 
     _LOGGER.info("Starting Porcupine listener")
@@ -71,9 +76,10 @@ async def main() -> None:
         return
 
     _LOGGER.info("Starting audio pipline thread")
+    _loop = asyncio.get_running_loop()
     audio_thread = threading.Thread(
         target=read_audio,
-        args=(state, asyncio.get_running_loop(), porcupine),
+        args=(state, _loop, porcupine),
         daemon=True,
     )
     audio_thread.start()
@@ -87,96 +93,7 @@ async def main() -> None:
     finally:
         state.recording = False
         state.running = False
-        audio_thread.join()
-
-
-##########################################
-def get_porcupine(state: State) -> pvporcupine:
-    """Listen for wake word and send audio to Home-Assistant"""
-
-    args = state.args
-    devices = {}
-    for idx, device in enumerate(PvRecorder.get_audio_devices()):
-        devices[idx] = device
-        _LOGGER.info("Device %d: %s", idx, device)
-
-    _id = args.audio_device
-    audio_device = devices.get(_id)
-    if not audio_device:
-        _LOGGER.error("Invalid audio device id: %s", _id)
-        return None
-
-    _LOGGER.info("Using Device %d: %s", _id, audio_device)
-    if args.show_audio_devices:
-        sys.exit(0)
-
-    if args.keyword_paths is None:
-        if args.keywords is None:
-            raise ValueError("Either `--keywords` or `--keyword_paths` must be set.")
-
-        keyword_paths = [pvporcupine.KEYWORD_PATHS[x] for x in args.keywords]
-    else:
-        keyword_paths = args.keyword_paths
-
-    if args.sensitivities is None:
-        args.sensitivities = [0.5] * len(keyword_paths)
-
-    if len(keyword_paths) != len(args.sensitivities):
-        raise ValueError(
-            "Number of keywords does not match the number of sensitivities."
-        )
-
-    try:
-        porcupine = pvporcupine.create(
-            access_key=args.access_key,
-            library_path=args.library_path,
-            model_path=args.model_path,
-            keyword_paths=keyword_paths,
-            sensitivities=args.sensitivities,
-        )
-
-    except pvporcupine.PorcupineInvalidArgumentError as err:
-        _LOGGER.error(
-            "One or more arguments provided to Porcupine is invalid: %s", args
-        )
-        _LOGGER.error(err)
-        return None
-
-    except pvporcupine.PorcupineActivationError as err:
-        _LOGGER.error("AccessKey activation error. %s", err)
-        return None
-
-    except pvporcupine.PorcupineActivationLimitError:
-        _LOGGER.error(
-            "AccessKey '%s' has reached it's temporary device limit", args.access_key
-        )
-        return None
-
-    except pvporcupine.PorcupineActivationRefusedError:
-        _LOGGER.error("AccessKey '%s' refused", args.access_key)
-        return None
-
-    except pvporcupine.PorcupineActivationThrottledError:
-        _LOGGER.error("AccessKey '%s' has been throttled", args.access_key)
-        return None
-
-    except pvporcupine.PorcupineError:
-        _LOGGER.error("Failed to initialize Porcupine")
-        return None
-
-    _LOGGER.info("Porcupine version: %s", porcupine.version)
-
-    keywords = list()
-    for item in keyword_paths:
-        keyword_phrase_part = os.path.basename(item).replace(".ppn", "").split("_")
-        if len(keyword_phrase_part) > 6:
-            keywords.append(" ".join(keyword_phrase_part[0:-6]))
-        else:
-            keywords.append(keyword_phrase_part[0])
-
-    _LOGGER.debug("keywords: %s", keywords)
-
-    return porcupine
+        audio_thread.join(1)
 
 
 ##########################################
@@ -198,19 +115,18 @@ async def loop_pipeline(state: State) -> None:
 
         async with session.ws_connect(url, ssl=sslcontext) as websocket:
             msg = await websocket.receive_json()
-            assert msg["type"] == "auth_required", msg
+            assert msg[TYPE] == "auth_required", msg
 
             await websocket.send_json(
                 {
-                    "type": "auth",
+                    TYPE: "auth",
                     "access_token": args.token,
                 }
             )
 
             msg = await websocket.receive_json()
             _LOGGER.debug(msg)
-            assert msg["type"] == "auth_ok", msg
-
+            assert msg[TYPE] == "auth_ok", msg
             _LOGGER.info("Authenticated with Home Assistant successfully")
 
             message_id = 1
@@ -222,18 +138,18 @@ async def loop_pipeline(state: State) -> None:
                 # Get list of available pipelines and resolve name
                 await websocket.send_json(
                     {
-                        "type": "assist_pipeline/pipeline/list",
-                        "id": message_id,
+                        TYPE: "assist_pipeline/pipeline/list",
+                        ID: message_id,
                     }
                 )
                 msg = await websocket.receive_json()
                 _LOGGER.debug(msg)
                 message_id += 1
 
-                pipelines = msg["result"]["pipelines"]
+                pipelines = msg[RESULT]["pipelines"]
                 for pipeline in pipelines:
-                    if pipeline["name"] == args.pipeline:
-                        pipeline_id = pipeline["id"]
+                    if pipeline[NAME] == args.pipeline:
+                        pipeline_id = pipeline[ID]
                         break
 
                 if not pipeline_id:
@@ -251,14 +167,14 @@ async def loop_pipeline(state: State) -> None:
                 count = 0
                 _LOGGER.info("Waiting for wake word to trigger audio")
                 while not state.recording:
-                    time.sleep(0.2)
+                    await asyncio.sleep(0.3)
 
                 # Run pipeline
                 _LOGGER.info("Listening and sending audio to voice pipeline")
 
                 pipeline_args = {
-                    "type": "assist_pipeline/run",
-                    "id": message_id,
+                    TYPE: "assist_pipeline/run",
+                    ID: message_id,
                     "start_stage": "stt",
                     "end_stage": "tts",
                     "input": {
@@ -282,7 +198,7 @@ async def loop_pipeline(state: State) -> None:
                 _LOGGER.debug(msg)
 
                 handler_id = bytes(
-                    [msg["event"]["data"]["runner_data"]["stt_binary_handler_id"]]
+                    [msg[EVENT][DATA]["runner_data"]["stt_binary_handler_id"]]
                 )
 
                 # Audio loop for single pipeline run
@@ -303,7 +219,7 @@ async def loop_pipeline(state: State) -> None:
                     if receive_event_task in done:
                         event = receive_event_task.result()
                         _LOGGER.debug(event)
-                        event_type = event["event"]["type"]
+                        event_type = event[EVENT][TYPE]
 
                         if event_type == "run-end":
                             count += 1
@@ -314,7 +230,7 @@ async def loop_pipeline(state: State) -> None:
                                 state.recording = False
                             break
 
-                        event_data = event["event"].get("data")
+                        event_data = event[EVENT].get(DATA)
                         if event_type == "error":
                             state.recording = False
                             _LOGGER.info(
@@ -404,6 +320,96 @@ def read_audio(
         _LOGGER.exception("Unexpected error reading audio")
 
     state.audio_queue.put_nowait(bytes())
+
+
+##########################################
+def get_porcupine(state: State) -> pvporcupine:
+    """Listen for wake word and send audio to Home-Assistant"""
+
+    args = state.args
+    devices = {}
+    for idx, device in enumerate(PvRecorder.get_audio_devices()):
+        devices[idx] = device
+        _LOGGER.info("Device %d: %s", idx, device)
+
+    _id = args.audio_device
+    audio_device = devices.get(_id)
+    if not audio_device:
+        _LOGGER.error("Invalid audio device id: %s", _id)
+        return None
+
+    _LOGGER.info("Using Device %d: %s", _id, audio_device)
+    if args.show_audio_devices:
+        sys.exit(0)
+
+    if args.keyword_paths is None:
+        if args.keywords is None:
+            raise ValueError("Either `--keywords` or `--keyword_paths` must be set.")
+
+        keyword_paths = [pvporcupine.KEYWORD_PATHS[x] for x in args.keywords]
+
+    else:
+        keyword_paths = args.keyword_paths
+
+    if args.sensitivities is None:
+        args.sensitivities = [0.5] * len(keyword_paths)
+
+    if len(keyword_paths) != len(args.sensitivities):
+        raise ValueError(
+            "Number of keywords does not match the number of sensitivities."
+        )
+
+    try:
+        porcupine = pvporcupine.create(
+            access_key=args.access_key,
+            library_path=args.library_path,
+            model_path=args.model_path,
+            keyword_paths=keyword_paths,
+            sensitivities=args.sensitivities,
+        )
+
+    except pvporcupine.PorcupineInvalidArgumentError as err:
+        _LOGGER.error(
+            "One or more arguments provided to Porcupine is invalid: %s", args
+        )
+        _LOGGER.error(err)
+        return None
+
+    except pvporcupine.PorcupineActivationError as err:
+        _LOGGER.error("AccessKey activation error. %s", err)
+        return None
+
+    except pvporcupine.PorcupineActivationLimitError:
+        _LOGGER.error(
+            "AccessKey '%s' has reached it's temporary device limit", args.access_key
+        )
+        return None
+
+    except pvporcupine.PorcupineActivationRefusedError:
+        _LOGGER.error("AccessKey '%s' refused", args.access_key)
+        return None
+
+    except pvporcupine.PorcupineActivationThrottledError:
+        _LOGGER.error("AccessKey '%s' has been throttled", args.access_key)
+        return None
+
+    except pvporcupine.PorcupineError:
+        _LOGGER.error("Failed to initialize Porcupine")
+        return None
+
+    _LOGGER.info("Porcupine version: %s", porcupine.version)
+
+    keywords = list()
+    for item in keyword_paths:
+        keyword_phrase_part = os.path.basename(item).replace(".ppn", "").split("_")
+        if len(keyword_phrase_part) > 6:
+            keywords.append(" ".join(keyword_phrase_part[0:-6]))
+        else:
+            keywords.append(keyword_phrase_part[0])
+
+    _LOGGER.debug("keywords: %s", keywords)
+
+    return porcupine
 
 
 ##########################################
