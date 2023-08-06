@@ -75,15 +75,16 @@ async def main() -> None:
     if not porcupine:
         return
 
-    _LOGGER.info("Starting audio pipline thread")
-    _loop = asyncio.get_running_loop()
+    _LOGGER.info("Starting audio listener thread")
+    _running_loop = asyncio.get_running_loop()
     audio_thread = threading.Thread(
         target=read_audio,
-        args=(state, _loop, porcupine),
+        args=(state, _running_loop, porcupine),
         daemon=True,
     )
     audio_thread.start()
 
+    _LOGGER.info("Starting audio pipline loop")
     try:
         await loop_pipeline(state)
 
@@ -110,7 +111,8 @@ async def loop_pipeline(state: State) -> None:
 
     url += f"://{args.server}:{args.server_port}/api/websocket"
 
-    async with aiohttp.ClientSession() as session:
+    conn = aiohttp.TCPConnector()
+    async with aiohttp.ClientSession(connector=conn) as session:
         _LOGGER.info("Authenticating: %s", url)
 
         async with session.ws_connect(url, ssl=sslcontext) as websocket:
@@ -126,37 +128,13 @@ async def loop_pipeline(state: State) -> None:
 
             msg = await websocket.receive_json()
             _LOGGER.debug(msg)
+
             assert msg[TYPE] == "auth_ok", msg
             _LOGGER.info("Authenticated with Home Assistant successfully")
 
-            message_id = 1
-            pipeline_id: Optional[str] = None
+            pipeline_id = await get_audio_pipeline(args, websocket)
 
-            if args.pipeline:
-                _LOGGER.info("Using Home-Assistant pipeline %s", args.pipeline)
-
-                # Get list of available pipelines and resolve name
-                await websocket.send_json(
-                    {
-                        TYPE: "assist_pipeline/pipeline/list",
-                        ID: message_id,
-                    }
-                )
-                msg = await websocket.receive_json()
-                _LOGGER.debug(msg)
-                message_id += 1
-
-                pipelines = msg[RESULT]["pipelines"]
-                for pipeline in pipelines:
-                    if pipeline[NAME] == args.pipeline:
-                        pipeline_id = pipeline[ID]
-                        break
-
-                if not pipeline_id:
-                    raise ValueError(
-                        f"No pipeline named {args.pipeline} in {pipelines}"
-                    )
-
+            message_id = 3
             # Pipeline loop
             _LOGGER.info("Starting audio processing loop")
             while state.running:
@@ -256,6 +234,38 @@ async def loop_pipeline(state: State) -> None:
 
                     if send_audio_task not in done:
                         await send_audio_task
+
+
+##########################################
+async def get_audio_pipeline(args: argparse.Namespace, websocket) -> str:
+    """Return ID of audio pipeline"""
+
+    message_id = 1
+    pipeline_id: Optional[str] = None
+    if args.pipeline:
+        _LOGGER.info("Using Home-Assistant pipeline %s", args.pipeline)
+
+        # Get list of available pipelines and resolve name
+        await websocket.send_json(
+            {
+                TYPE: "assist_pipeline/pipeline/list",
+                ID: message_id,
+            }
+        )
+        msg = await websocket.receive_json()
+        _LOGGER.debug(msg)
+        message_id += 1
+
+        pipelines = msg[RESULT]["pipelines"]
+        for pipeline in pipelines:
+            if pipeline[NAME] == args.pipeline:
+                pipeline_id = pipeline[ID]
+                break
+
+        if not pipeline_id:
+            raise ValueError(f"No pipeline named {args.pipeline} in {pipelines}")
+
+    return pipeline_id
 
 
 ##########################################
