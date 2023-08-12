@@ -10,6 +10,8 @@ for a conversation with a Home-Assistant Voice Assistant
 Required Authentication
 
     - From Picovoice access_key for Porcupine wake word detection
+        (Please note that your Picovoice user is only allowed one unique device. Rebuilding the docker image can result in a new device id that prevents you from using Picovoice)
+
     - From Home-Assistant long-lived access token
 
 Environment Variables:
@@ -79,3 +81,4 @@ Tested with:
 
     https://github.com/Picovoice/porcupine
     AccessKey obtained from Picovoice Console (https://console.picovoice.ai/)
+    https://picovoice.ai/platform/porcupine/
