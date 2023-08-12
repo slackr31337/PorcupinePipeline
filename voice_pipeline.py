@@ -1,10 +1,12 @@
 """
 Run Porcupine wake word listener 
-and send audio to Home Assistant audio pipeline"""
+and send audio to Home Assistant audio pipeline
+"""
 from __future__ import annotations
 
 import os
 import sys
+import time
 import struct
 import logging
 import argparse
@@ -12,15 +14,17 @@ import asyncio
 import audioop
 import ssl
 import threading
+from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Optional
 import warnings
-
 
 import aiohttp
 import pvporcupine
 from pvrecorder import PvRecorder
 from playsound import playsound
+
+
 from cli_args import get_cli_args
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -35,301 +39,383 @@ DATA = "data"
 TYPE = "type"
 ID = "id"
 
+WEBSOCKET_TIMEOUT = 10  # seconds
+
 
 ##########################################
 @dataclass
 class State:
-    """Client state."""
+    """Client state"""
 
     args: argparse.Namespace
+    connected: bool = False
     running: bool = True
     recording: bool = False
     audio_queue: asyncio.Queue[bytes] = field(default_factory=asyncio.Queue)
 
 
 ##########################################
-async def main() -> None:
-    """Main entry point."""
+class PorcupinePipeline:
+    """Class used to process audio pipeline using HA websocket"""
 
-    args = get_cli_args()
-    proto = "http"
-    if args.server_https:
-        proto += "s"
+    websocket_url = None
+    _websocket = None
+    _ha_url = None
+    _sslcontext = None
+    _message_id = 1
+    _last_ping = 0
+    _followup = False
 
-    args.ha_url = f"{proto}://{args.server}:{args.server_port}"
+    ##########################################
+    def __init__(self, args: argparse.Namespace):
+        """Setup websock client and audio pipeline"""
 
-    _LOGGER.setLevel(level=logging.DEBUG if args.debug else logging.INFO)
-    if args.debug:
-        log_format = "[%(filename)12s: %(funcName)18s()] %(levelname)5s %(message)s"
-    else:
-        log_format = "%(asctime)s %(levelname)5s %(message)s"
+        self._state = State(args=args)
+        self._state.running = False
 
-    log_stream = logging.StreamHandler(sys.stdout)
-    log_stream.setFormatter(logging.Formatter(log_format))
-    _LOGGER.addHandler(log_stream)
-    _LOGGER.debug(args)
+        self._conn = aiohttp.TCPConnector()
+        self._event_loop = asyncio.get_event_loop()
 
-    _LOGGER.info("Starting Porcupine listener")
-    state = State(args=args)
-    porcupine = get_porcupine(state)
-    if not porcupine:
-        return
+        self._porcupine = get_porcupine(self._state)
+        self._audio_thread = threading.Thread(
+            target=self.read_audio,
+            daemon=True,
+        )
+        self._setup_urls()
 
-    _LOGGER.info("Starting audio listener thread")
-    _running_loop = asyncio.get_running_loop()
-    audio_thread = threading.Thread(
-        target=read_audio,
-        args=(state, _running_loop, porcupine),
-        daemon=True,
-    )
-    audio_thread.start()
+    ##########################################
+    def _setup_urls(self) -> None:
+        """Setup Home-Assistant and Websock URLs"""
 
-    _LOGGER.info("Starting audio pipline loop")
-    try:
-        await loop_pipeline(state)
+        server = self._state.args.server
+        port = self._state.args.server_port
+        proto = "http"
 
-    except KeyboardInterrupt:
-        pass
-
-    finally:
-        state.recording = False
-        state.running = False
-        audio_thread.join(1)
-
-
-##########################################
-async def loop_pipeline(state: State) -> None:
-    """Run pipeline in a loop, executing voice commands and printing TTS URLs."""
-
-    args = state.args
-    url = "ws"
-
-    sslcontext = None
-    if args.server_https:
-        sslcontext = ssl.create_default_context(purpose=ssl.Purpose.CLIENT_AUTH)
-        url = "https"
-
-    url += f"://{args.server}:{args.server_port}/api/websocket"
-
-    conn = aiohttp.TCPConnector()
-    async with aiohttp.ClientSession(connector=conn) as session:
-        _LOGGER.info("Authenticating: %s", url)
-
-        async with session.ws_connect(url, ssl=sslcontext) as websocket:
-            msg = await websocket.receive_json()
-            assert msg[TYPE] == "auth_required", msg
-
-            await websocket.send_json(
-                {
-                    TYPE: "auth",
-                    "access_token": args.token,
-                }
+        self.websocket_url = "ws"
+        if self._state.args.server_https:
+            self._sslcontext = ssl.create_default_context(
+                purpose=ssl.Purpose.CLIENT_AUTH
             )
+            proto += "s"
+            self.websocket_url = proto
 
-            msg = await websocket.receive_json()
-            _LOGGER.debug(msg)
+        self._ha_url = f"{proto}://{server}:{port}"
+        self.websocket_url += f"://{server}:{port}/api/websocket"
 
-            assert msg[TYPE] == "auth_ok", msg
-            _LOGGER.info("Authenticated with Home Assistant successfully")
+    ##########################################
+    def start(self) -> None:
+        """Start listening for wake word"""
 
-            pipeline_id = await get_audio_pipeline(args, websocket)
+        self._websocket = None
+        self._state.running = True
 
-            message_id = 3
-            # Pipeline loop
-            _LOGGER.info("Starting audio processing loop")
-            while state.running:
-                # Clear audio queue
-                while not state.audio_queue.empty():
-                    state.audio_queue.get_nowait()
+        _LOGGER.info("Starting audio listener thread")
+        self._audio_thread.start()
 
-                count = 0
-                _LOGGER.info("Waiting for wake word to trigger audio")
-                while not state.recording:
-                    await asyncio.sleep(0.3)
+        self._event_loop.run_until_complete(self._start_audio_pipeline())
 
-                # Run pipeline
-                _LOGGER.info("Listening and sending audio to voice pipeline")
+    ##########################################
+    def stop(self) -> None:
+        """Stop audio thread and loop"""
 
-                pipeline_args = {
-                    TYPE: "assist_pipeline/run",
-                    ID: message_id,
-                    "start_stage": "stt",
-                    "end_stage": "tts",
-                    "input": {
-                        "sample_rate": 16000,
-                    },
-                }
-                if pipeline_id:
-                    pipeline_args["pipeline"] = pipeline_id
+        _LOGGER.info("Stopping")
 
-                await websocket.send_json(pipeline_args)
-                message_id += 1
+        self._state.recording = False
+        self._state.running = False
+        self._audio_thread.join(1)
+        self._porcupine = None
+        self._websocket = None
 
-                msg = await websocket.receive_json()
-                _LOGGER.debug(msg)
+    ##########################################
+    async def _ping(self):
+        """Send Ping to HA"""
 
-                assert msg["success"], "Pipeline failed to run"
+        if not self._state.running or not self._state.connected:
+            return
 
-                # Get handler id.
-                # This is a single byte prefix that needs to be in every binary payload.
-                msg = await websocket.receive_json()
-                _LOGGER.debug(msg)
+        now = int(time.time())
+        if now - self._last_ping < 30:
+            await asyncio.sleep(0.3)
+            return
 
-                handler_id = bytes(
-                    [msg[EVENT][DATA]["runner_data"]["stt_binary_handler_id"]]
-                )
+        _LOGGER.debug("Ping HA WS")
+        await self._send_ws({TYPE: "ping"})
 
-                # Audio loop for single pipeline run
-                receive_event_task = asyncio.create_task(websocket.receive_json())
-                while True:
-                    audio_chunk = await state.audio_queue.get()
+        response = await self._websocket.receive_json(timeout=WEBSOCKET_TIMEOUT)
+        _LOGGER.debug("Ping response=%s", response)
 
-                    # Prefix binary message with handler id
-                    send_audio_task = asyncio.create_task(
-                        websocket.send_bytes(handler_id + audio_chunk)
-                    )
-                    pending = {send_audio_task, receive_event_task}
-                    done, pending = await asyncio.wait(
-                        pending,
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
+        assert response[TYPE] == "pong", response
+        self._last_ping = int(time.time())
 
-                    if receive_event_task in done:
-                        event = receive_event_task.result()
-                        _LOGGER.debug(event)
-                        event_type = event[EVENT][TYPE]
+    ##########################################
+    async def _send_ws(self, message: dict) -> None:
+        """Send websocket JSON message and increment message ID"""
 
-                        if event_type == "run-end":
-                            count += 1
-                            _LOGGER.debug("[%s] Pipeline finished", count)
-                            if args.follow_up and count < 4:
-                                state.recording = True
-                            else:
-                                state.recording = False
-                            break
+        if not self._state.connected:
+            _LOGGER.error("WS not connected")
+            return
 
-                        event_data = event[EVENT].get(DATA)
-                        if event_type == "error":
-                            state.recording = False
-                            _LOGGER.info(
-                                "%s. Listening stopped",
-                                event_data.get("message"),
-                            )
-                            break
+        if not isinstance(message, dict):
+            _LOGGER.error("Invalid WS message type")
+            return
 
-                        elif event_type == "stt-end":
-                            speech = event_data["stt_output"].get("text")
-                            _LOGGER.info("Recongized speech: %s", speech)
+        message[ID] = self._message_id
+        _LOGGER.debug("send_ws() message=%s", message)
 
-                        elif event_type == "tts-end":
-                            # URL of text to speech audio response (relative to server)
-                            tts_url = args.ha_url
-                            tts_url += event_data["tts_output"].get("url")
-                            _LOGGER.info("Play response: %s", tts_url)
-                            playsound(tts_url)
+        await self._websocket.send_json(message)
+        self._message_id += 1
 
-                        receive_event_task = asyncio.create_task(
-                            websocket.receive_json()
-                        )
+    ##########################################
+    async def _start_audio_pipeline(self):
+        """Start HA audio pipeline"""
 
-                    if send_audio_task not in done:
-                        await send_audio_task
+        _LOGGER.info("Starting audio pipline loop")
 
+        async with aiohttp.ClientSession(connector=self._conn) as session:
+            async with session.ws_connect(
+                self.websocket_url, ssl=self._sslcontext, timeout=WEBSOCKET_TIMEOUT
+            ) as websocket:
+                self._websocket = websocket
 
-##########################################
-async def get_audio_pipeline(args: argparse.Namespace, websocket) -> str:
-    """Return ID of audio pipeline"""
+                await self._auth_ha()
+                await self.get_audio_pipeline()
+                await self._process_loop()
 
-    message_id = 1
-    pipeline_id: Optional[str] = None
-    if args.pipeline:
-        _LOGGER.info("Using Home-Assistant pipeline %s", args.pipeline)
+    ##########################################
+    async def _auth_ha(self) -> None:
+        """Authenticate websocket connection to HA"""
 
-        # Get list of available pipelines and resolve name
-        await websocket.send_json(
+        _LOGGER.info("Authenticating to: %s", self.websocket_url)
+
+        self._state.connected = False
+        msg = await self._websocket.receive_json()
+        assert msg[TYPE] == "auth_required", msg
+
+        await self._websocket.send_json(
             {
-                TYPE: "assist_pipeline/pipeline/list",
-                ID: message_id,
+                TYPE: "auth",
+                "access_token": self._state.args.token,
             }
         )
-        msg = await websocket.receive_json()
+
+        msg = await self._websocket.receive_json()
         _LOGGER.debug(msg)
-        message_id += 1
 
-        pipelines = msg[RESULT]["pipelines"]
-        for pipeline in pipelines:
-            if pipeline[NAME] == args.pipeline:
-                pipeline_id = pipeline[ID]
-                break
+        assert msg[TYPE] == "auth_ok", msg
+        _LOGGER.info(
+            "Authenticated to Home Assistant version %s", msg.get("ha_version")
+        )
+        self._state.connected = True
 
-        if not pipeline_id:
-            raise ValueError(f"No pipeline named {args.pipeline} in {pipelines}")
+    ##########################################
+    async def get_audio_pipeline(self) -> None:
+        """Return ID of audio pipeline"""
 
-    return pipeline_id
+        self._pipeline_id: Optional[str] = None
+        if self._state.args.pipeline:
+            _LOGGER.info(
+                "Using Home Assistant audio pipeline %s", self._state.args.pipeline
+            )
 
+            # Get list of available pipelines and resolve name
+            await self._send_ws(
+                {
+                    TYPE: "assist_pipeline/pipeline/list",
+                }
+            )
+            msg = await self._websocket.receive_json()
+            _LOGGER.debug(msg)
+            if RESULT not in msg:
+                _LOGGER.error("FAiled to get audio pipeline from HA")
+                _LOGGER.error("response=%s", msg)
+                return
 
-##########################################
-def read_audio(
-    state: State, loop: asyncio.AbstractEventLoop, porcupine: pvporcupine
-) -> None:
-    """Reads chunks of raw audio from standard input."""
-    try:
-        args = state.args
-        keywords = args.keywords
-        ratecv_state = None
+            pipelines = msg[RESULT]["pipelines"]
+            for pipeline in pipelines:
+                if pipeline[NAME] == self._state.args.pipeline:
+                    self._pipeline_id = pipeline[ID]
+                    break
 
-        _LOGGER.debug("Reading audio")
-        recorder = PvRecorder(
-            device_index=args.audio_device, frame_length=porcupine.frame_length
+            if not self._pipeline_id:
+                raise ValueError(
+                    f"No pipeline named {self._state.args.pipeline} in {pipelines}"
+                )
+
+    ##########################################
+    async def _process_loop(self) -> None:
+        """Process audio and wake word events"""
+
+        _LOGGER.info("Starting audio processing loop")
+        while self._state.running:
+            # Clear audio queue
+            while not self._state.audio_queue.empty():
+                self._state.audio_queue.get_nowait()
+
+            _LOGGER.info("Waiting for wake word to trigger audio")
+            while not self._state.recording:
+                await self._ping()
+
+            # Run audio pipeline
+            pipeline_args = {
+                TYPE: "assist_pipeline/run",
+                ID: self._message_id,
+                "start_stage": "stt",
+                "end_stage": "tts",
+                "input": {
+                    "sample_rate": 16000,
+                },
+            }
+            if self._pipeline_id:
+                pipeline_args["pipeline"] = self._pipeline_id
+
+            await self._send_ws(pipeline_args)
+            msg = await self._websocket.receive_json()
+            # _LOGGER.debug(msg)
+
+            assert msg["success"], "Pipeline failed to start"
+            _LOGGER.info("Listening and sending audio to voice pipeline %s", self._pipeline_id)
+            await self.audio_task()
+
+    ##########################################
+    async def audio_task(self) -> None:
+        """Create task to process audio"""
+
+        # Audio loop for single pipeline run
+        count = 0
+
+        # Get handler id.
+        # This is a single byte prefix that needs to be in every binary payload.
+        msg = await self._websocket.receive_json()
+        _LOGGER.debug(msg)
+
+        handler_id = bytes(
+            [msg[EVENT][DATA]["runner_data"].get("stt_binary_handler_id")]
         )
 
-        recorder.start()
-        state.recording = False
+        receive_event_task = asyncio.create_task(self._websocket.receive_json())
+        _LOGGER.debug("New audio task %s", receive_event_task)
 
-        while state.running:
-            try:
-                pcm = recorder.read()
+        while self._state.connected:
+            audio_chunk = await self._state.audio_queue.get()
 
-            except OSError as err:
-                _LOGGER.error("Exception: %s", err)
-                state.running = False
-                break
+            # Prefix binary message with handler id
+            send_audio_task = asyncio.create_task(
+                self._websocket.send_bytes(handler_id + audio_chunk)
+            )
+            pending = {send_audio_task, receive_event_task}
+            done, pending = await asyncio.wait(
+                pending,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
 
-            if not state.recording:
-                result = porcupine.process(pcm)
-                # _LOGGER.debug("porcupine result: %s", result)
+            if receive_event_task in done:
+                event = receive_event_task.result()
+                _LOGGER.debug(event)
+                event_type = event[EVENT][TYPE]
 
-                if result >= 0:
-                    _LOGGER.info("Detected keyword `%s`", keywords[result])
-                    state.recording = True
+                if event_type == "run-end":
+                    count += 1
+                    _LOGGER.debug("[%s] Pipeline finished", count)
+                    if self._state.args.follow_up and count < 4:
+                        self._state.recording = True
+                    else:
+                        self._state.recording = False
+                    break
 
-            if state.recording:
-                chunk = struct.pack("h" * len(pcm), *pcm)
+                event_data = event[EVENT].get(DATA)
+                if event_type == "error":
+                    self._state.recording = False
+                    _LOGGER.info(
+                        "%s. Listening stopped",
+                        event_data.get("message"),
+                    )
+                    break
 
-                # Convert to 16Khz, 16-bit, mono
-                if args.channels != 1:
-                    chunk = audioop.tomono(chunk, args.width, 1.0, 1.0)
+                elif event_type == "stt-end":
+                    speech = event_data["stt_output"].get("text")
+                    _LOGGER.info("Recongized speech: %s", speech)
 
-                if args.width != 2:
-                    chunk = audioop.lin2lin(chunk, args.width, 2)
+                elif event_type == "tts-end":
+                    # URL of text to speech audio response (relative to server)
+                    tts_url = self._ha_url
+                    tts_url += event_data["tts_output"].get("url")
+                    _LOGGER.info("Play response: %s", tts_url)
+                    playsound(tts_url)
 
-                if args.rate != 16000:
-                    chunk, ratecv_state = audioop.ratecv(
-                        chunk,
-                        2,
-                        1,
-                        args.rate,
-                        16000,
-                        ratecv_state,
+                elif event_type == "stt-start":
+                    _LOGGER.debug("HA stt using %s", event_data.get("engine"))
+
+                else:
+                    _LOGGER.debug("Unknown event_type=%s", event_type)
+
+                receive_event_task = asyncio.create_task(self._websocket.receive_json())
+
+            if send_audio_task not in done:
+                await send_audio_task
+
+    ##########################################
+    def read_audio(self) -> None:
+        """Reads chunks of raw audio from standard input."""
+        try:
+            args = self._state.args
+            keywords = args.keywords
+            ratecv_state = None
+
+            _LOGGER.debug("Reading audio")
+            recorder = PvRecorder(
+                device_index=args.audio_device,
+                frame_length=self._porcupine.frame_length,
+            )
+
+            recorder.start()
+            self._state.recording = False
+            while self._state.running:
+                try:
+                    pcm = recorder.read()
+
+                except OSError as err:
+                    _LOGGER.error("Exception: %s", err)
+                    self._state.running = False
+                    break
+
+                if not self._state.recording:
+                    result = self._porcupine.process(pcm)
+                    # _LOGGER.debug("porcupine result: %s", result)
+
+                    if result >= 0:
+                        _LOGGER.info("Detected keyword `%s`", keywords[result])
+                        self._state.recording = True
+
+                if self._state.recording:
+                    # _LOGGER.debug("Recording audio and sending to pipeline")
+                    chunk = struct.pack("h" * len(pcm), *pcm)
+
+                    # Convert to 16Khz, 16-bit, mono
+                    if args.channels != 1:
+                        chunk = audioop.tomono(chunk, args.width, 1.0, 1.0)
+
+                    if args.width != 2:
+                        chunk = audioop.lin2lin(chunk, args.width, 2)
+
+                    if args.rate != 16000:
+                        chunk, ratecv_state = audioop.ratecv(
+                            chunk,
+                            2,
+                            1,
+                            args.rate,
+                            16000,
+                            ratecv_state,
+                        )
+
+                    # Pass converted audio to loop
+                    self._event_loop.call_soon_threadsafe(
+                        self._state.audio_queue.put_nowait, chunk
                     )
 
-                # Pass converted audio to loop
-                loop.call_soon_threadsafe(state.audio_queue.put_nowait, chunk)
+        except Exception:  # pylint: disable=broad-exception-caught
+            _LOGGER.exception("Unexpected error reading audio")
 
-    except Exception:  # pylint: disable=broad-exception-caught
-        _LOGGER.exception("Unexpected error reading audio")
-
-    state.audio_queue.put_nowait(bytes())
+        self._state.audio_queue.put_nowait(bytes())
 
 
 ##########################################
@@ -423,5 +509,29 @@ def get_porcupine(state: State) -> pvporcupine:
 
 
 ##########################################
+def main() -> None:
+    """Main entry point."""
+
+    args = get_cli_args()
+    _LOGGER.setLevel(level=logging.DEBUG if args.debug else logging.INFO)
+    if args.debug:
+        log_format = "[%(filename)12s: %(funcName)18s()] %(levelname)5s %(message)s"
+    else:
+        log_format = "%(asctime)s %(levelname)5s %(message)s"
+
+    log_stream = logging.StreamHandler(sys.stdout)
+    log_stream.setFormatter(logging.Formatter(log_format))
+
+    _LOGGER.addHandler(log_stream)
+    _LOGGER.debug(args)
+
+    audio_pipeline = PorcupinePipeline(args)
+    audio_pipeline.start()
+
+
+##########################################
 if __name__ == "__main__":
-    asyncio.run(main())
+    with suppress(KeyboardInterrupt):
+        main()
+
+    sys.exit(0)
