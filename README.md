@@ -11,8 +11,9 @@ Required Authentication
 
     - From Picovoice access_key for Porcupine wake word detection
         (Please note that your Picovoice user is only allowed one unique device.
-        Rebuilding the docker image can result in a new device id 
-        that will prevent you from using Picovoice)
+        Running the docker image can result in a new device 
+        that will prevent you from using Picovoice
+        See: https://github.com/Picovoice/porcupine/issues/1020)
 
     - From Home-Assistant long-lived access token
 
