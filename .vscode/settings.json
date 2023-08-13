@@ -9,6 +9,7 @@
         "pvporcupine",
         "pvrecorder",
         "ratecv",
+        "SIGTERM",
         "simpleaudio",
         "tomono",
         "websockets"
