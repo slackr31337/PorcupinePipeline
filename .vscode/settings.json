@@ -9,6 +9,8 @@
         "pvporcupine",
         "pvrecorder",
         "ratecv",
+        "signame",
+        "signum",
         "SIGTERM",
         "simpleaudio",
         "tomono",
