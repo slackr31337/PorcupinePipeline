@@ -1,4 +1,5 @@
 pvporcupine==2.2.1
 pvrecorder==1.1.1
-playsound==1.3.0
+simpleaudio==1.0.4
+requests
 aiohttp
