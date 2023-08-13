@@ -5,4 +5,4 @@ echo "         will result in consuming a user device"
 echo "         for each container that is run. This"
 echo "         will exhaust a free user's monthly limit"
 
-docker build -f ./docker/Dockerfile -t porcupine-pipeline .
+docker build -f Dockerfile -t porcupine-pipeline .
