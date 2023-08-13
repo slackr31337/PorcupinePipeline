@@ -138,9 +138,8 @@ class PorcupinePipeline:
         self._websocket = None
         self._state.running = True
 
-        _LOGGER.info("Starting audio listener thread")
+        _LOGGER.info("Starting audio recording thread")
         self._audio_thread.start()
-
         self._event_loop.run_until_complete(self._start_audio_pipeline())
 
     ##########################################
@@ -209,9 +208,8 @@ class PorcupinePipeline:
         _LOGGER.debug("send_ws() message=%s", message)
 
         await self._websocket.send_json(message)
-        self._message_id += 1
-
         response = await self._websocket.receive_json(timeout=WEBSOCKET_TIMEOUT)
+        self._message_id += 1
         _LOGGER.debug("send_ws() response=%s", response)
         return response
 
