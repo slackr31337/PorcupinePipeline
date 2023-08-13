@@ -68,6 +68,7 @@ class PorcupinePipeline:
     _sslcontext = None
     _message_id = 1
     _last_ping = 0
+    _recorder = None
     _devices = {}
     _conversation_id = None
     _followup = False
@@ -100,6 +101,11 @@ class PorcupinePipeline:
             sys.exit(0)
 
         self._porcupine = get_porcupine(self._state)
+        self._recorder = PvRecorder(
+            device_index=args.audio_device,
+            frame_length=self._porcupine.frame_length,
+        )
+
         self._audio_thread = threading.Thread(
             target=self.read_audio,
             daemon=True,
@@ -138,16 +144,17 @@ class PorcupinePipeline:
         self._event_loop.run_until_complete(self._start_audio_pipeline())
 
     ##########################################
-    def stop(self, **args) -> None:
+    def stop(self, signum=0, frame=None) -> None:
         """Stop audio thread and loop"""
 
         _LOGGER.info("Stopping")
-        if args:
-            _LOGGER.debug(args)
+        if signum:
+            signame = signal.Signals(signum).name
+            _LOGGER.debug(signame)
 
-        self._state.recording = False
         self._state.running = False
-        self._websocket = None
+        self._state.recording = False
+        self._recorder.stop()
 
         self._audio_thread.join(1)
 
@@ -155,6 +162,8 @@ class PorcupinePipeline:
             self._porcupine.delete()
 
         self._porcupine = None
+        self._websocket = None
+        sys.exit(0)
 
     ##########################################
     async def _ping(self):
@@ -335,11 +344,14 @@ class PorcupinePipeline:
             [msg[EVENT][DATA]["runner_data"].get("stt_binary_handler_id")]
         )
 
-        receive_event_task = asyncio.create_task(self._websocket.receive_json())
+        receive_event_task = asyncio.create_task(
+            self._websocket.receive_json(timeout=WEBSOCKET_TIMEOUT)
+        )
+
         while self._state.connected:
             audio_chunk = await self._state.audio_queue.get()
             if not audio_chunk:
-                _LOGGER.error("No audio chunk in queue")
+                break
 
             # Prefix binary message with handler id
             send_audio_task = asyncio.create_task(
@@ -373,9 +385,9 @@ class PorcupinePipeline:
                         event_data.get("message"),
                     )
                     break
-                
+
                 elif event_type == "intent-end":
-                    intent = event_data.get("intent_output",{})
+                    intent = event_data.get("intent_output", {})
                     self._conversation_id = intent.get("conversation_id")
 
                 elif event_type == "stt-end":
@@ -397,9 +409,12 @@ class PorcupinePipeline:
                 else:
                     _LOGGER.debug("event_type=%s", event_type)
                     _LOGGER.debug("event=%s", event)
-                    #_LOGGER.debug("event_data=%s", event_data)
+                    # _LOGGER.debug("event_data=%s", event_data)
 
                 receive_event_task = asyncio.create_task(self._websocket.receive_json())
+
+            if not self._state.running:
+                break
 
             if send_audio_task not in done:
                 await send_audio_task
@@ -413,16 +428,11 @@ class PorcupinePipeline:
             ratecv_state = None
 
             _LOGGER.debug("Reading audio")
-            recorder = PvRecorder(
-                device_index=args.audio_device,
-                frame_length=self._porcupine.frame_length,
-            )
-
-            recorder.start()
+            self._recorder.start()
             self._state.recording = False
             while self._state.running:
                 try:
-                    pcm = recorder.read()
+                    pcm = self._recorder.read()
 
                 except OSError as err:
                     _LOGGER.error("Exception: %s", err)
@@ -585,6 +595,3 @@ if __name__ == "__main__":
     audio_pipeline = PorcupinePipeline(args)
     with suppress(KeyboardInterrupt):
         audio_pipeline.start()
-
-    audio_pipeline.stop()
-    sys.exit(0)
