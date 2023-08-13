@@ -14,6 +14,7 @@ import asyncio
 import audioop
 import ssl
 import threading
+import requests
 from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Optional
@@ -22,7 +23,7 @@ import warnings
 import aiohttp
 import pvporcupine
 from pvrecorder import PvRecorder
-from playsound import playsound
+import simpleaudio
 
 
 from cli_args import get_cli_args
@@ -174,9 +175,7 @@ class PorcupinePipeline:
         async with aiohttp.ClientSession(connector=self._conn) as session:
             async with session.ws_connect(
                 self.websocket_url, ssl=self._sslcontext, timeout=WEBSOCKET_TIMEOUT
-            ) as websocket:
-                self._websocket = websocket
-
+            ) as self._websocket:
                 await self._auth_ha()
                 await self.get_audio_pipeline()
                 await self._process_loop()
@@ -199,9 +198,7 @@ class PorcupinePipeline:
         )
 
         msg = await self._websocket.receive_json()
-        _LOGGER.debug(msg)
-
-        assert msg[TYPE] == "auth_ok", msg
+        assert msg.get(TYPE) == "auth_ok", msg
         _LOGGER.info(
             "Authenticated to Home Assistant version %s", msg.get("ha_version")
         )
@@ -233,7 +230,7 @@ class PorcupinePipeline:
             pipelines = msg[RESULT]["pipelines"]
             for pipeline in pipelines:
                 if pipeline[NAME] == self._state.args.pipeline:
-                    self._pipeline_id = pipeline[ID]
+                    self._pipeline_id = pipeline.get(ID)
                     break
 
             if not self._pipeline_id:
@@ -273,12 +270,14 @@ class PorcupinePipeline:
             # _LOGGER.debug(msg)
 
             assert msg["success"], "Pipeline failed to start"
-            _LOGGER.info("Listening and sending audio to voice pipeline %s", self._pipeline_id)
-            await self.audio_task()
+            _LOGGER.info(
+                "Listening and sending audio to voice pipeline %s", self._pipeline_id
+            )
+            await self.stt_task()
 
     ##########################################
-    async def audio_task(self) -> None:
-        """Create task to process audio"""
+    async def stt_task(self) -> None:
+        """Create task to process speech to text"""
 
         # Audio loop for single pipeline run
         count = 0
@@ -297,6 +296,8 @@ class PorcupinePipeline:
 
         while self._state.connected:
             audio_chunk = await self._state.audio_queue.get()
+            if not audio_chunk:
+                _LOGGER.error("No audio chunk in queue")
 
             # Prefix binary message with handler id
             send_audio_task = asyncio.create_task(
@@ -310,8 +311,9 @@ class PorcupinePipeline:
 
             if receive_event_task in done:
                 event = receive_event_task.result()
-                _LOGGER.debug(event)
-                event_type = event[EVENT][TYPE]
+                if EVENT in event:
+                    event_type = event[EVENT].get(TYPE)
+                    event_data = event[EVENT].get(DATA)
 
                 if event_type == "run-end":
                     count += 1
@@ -322,7 +324,6 @@ class PorcupinePipeline:
                         self._state.recording = False
                     break
 
-                event_data = event[EVENT].get(DATA)
                 if event_type == "error":
                     self._state.recording = False
                     _LOGGER.info(
@@ -340,13 +341,15 @@ class PorcupinePipeline:
                     tts_url = self._ha_url
                     tts_url += event_data["tts_output"].get("url")
                     _LOGGER.info("Play response: %s", tts_url)
-                    playsound(tts_url)
+                    # playsound(tts_url)
+                    await self._play_response(tts_url)
 
                 elif event_type == "stt-start":
                     _LOGGER.debug("HA stt using %s", event_data.get("engine"))
 
                 else:
-                    _LOGGER.debug("Unknown event_type=%s", event_type)
+                    _LOGGER.debug("event_type=%s", event_type)
+                    _LOGGER.debug("event_data=%s", event_data)
 
                 receive_event_task = asyncio.create_task(self._websocket.receive_json())
 
@@ -416,6 +419,23 @@ class PorcupinePipeline:
             _LOGGER.exception("Unexpected error reading audio")
 
         self._state.audio_queue.put_nowait(bytes())
+
+    ##########################################
+    async def _play_response(self, url: str) -> None:
+        """Play response wav file from HA"""
+
+        request = requests.get(url, timeout=(10, 30))
+        if request.status_code > 299:
+            _LOGGER.error("Failed to get audio file at %s", url)
+            return
+
+        audio = simpleaudio.play_buffer(
+            request.content,
+            self._state.args.channels,
+            self._state.args.width,
+            self._state.args.rate,
+        )
+        audio.wait_done()
 
 
 ##########################################
