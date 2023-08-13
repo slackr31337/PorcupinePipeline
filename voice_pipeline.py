@@ -69,7 +69,7 @@ class PorcupinePipeline:
 
     ##########################################
     def __init__(self, args: argparse.Namespace):
-        """Setup websock client and audio pipeline"""
+        """Setup Websocket client and audio pipeline"""
 
         self._state = State(args=args)
         self._state.running = False
@@ -86,7 +86,7 @@ class PorcupinePipeline:
 
     ##########################################
     def _setup_urls(self) -> None:
-        """Setup Home-Assistant and Websock URLs"""
+        """Setup Home-Assistant and Websocket URLs"""
 
         server = self._state.args.server
         port = self._state.args.server_port
@@ -139,11 +139,8 @@ class PorcupinePipeline:
             await asyncio.sleep(0.3)
             return
 
-        _LOGGER.debug("Ping HA WS")
         await self._send_ws({TYPE: "ping"})
-
         response = await self._websocket.receive_json(timeout=WEBSOCKET_TIMEOUT)
-        _LOGGER.debug("Ping response=%s", response)
 
         assert response[TYPE] == "pong", response
         self._last_ping = int(time.time())
@@ -170,7 +167,7 @@ class PorcupinePipeline:
     async def _start_audio_pipeline(self):
         """Start HA audio pipeline"""
 
-        _LOGGER.info("Starting audio pipline loop")
+        _LOGGER.info("Starting audio pipeline loop")
 
         async with aiohttp.ClientSession(connector=self._conn) as session:
             async with session.ws_connect(
@@ -265,11 +262,11 @@ class PorcupinePipeline:
             if self._pipeline_id:
                 pipeline_args["pipeline"] = self._pipeline_id
 
+            # Send audio pipeline args to HA
             await self._send_ws(pipeline_args)
             msg = await self._websocket.receive_json()
-            # _LOGGER.debug(msg)
-
             assert msg["success"], "Pipeline failed to start"
+            
             _LOGGER.info(
                 "Listening and sending audio to voice pipeline %s", self._pipeline_id
             )
@@ -333,18 +330,19 @@ class PorcupinePipeline:
                     break
 
                 elif event_type == "stt-end":
+                    # HA finished processing speech to text with result
                     speech = event_data["stt_output"].get("text")
-                    _LOGGER.info("Recongized speech: %s", speech)
+                    _LOGGER.info("Recognized speech: %s", speech)
 
                 elif event_type == "tts-end":
                     # URL of text to speech audio response (relative to server)
                     tts_url = self._ha_url
                     tts_url += event_data["tts_output"].get("url")
                     _LOGGER.info("Play response: %s", tts_url)
-                    # playsound(tts_url)
                     await self._play_response(tts_url)
 
                 elif event_type == "stt-start":
+                    # HA has started processing speech to text
                     _LOGGER.debug("HA stt using %s", event_data.get("engine"))
 
                 else:
@@ -383,14 +381,12 @@ class PorcupinePipeline:
 
                 if not self._state.recording:
                     result = self._porcupine.process(pcm)
-                    # _LOGGER.debug("porcupine result: %s", result)
 
                     if result >= 0:
                         _LOGGER.info("Detected keyword `%s`", keywords[result])
                         self._state.recording = True
 
                 if self._state.recording:
-                    # _LOGGER.debug("Recording audio and sending to pipeline")
                     chunk = struct.pack("h" * len(pcm), *pcm)
 
                     # Convert to 16Khz, 16-bit, mono

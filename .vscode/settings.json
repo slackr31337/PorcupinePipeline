@@ -2,4 +2,14 @@
     "[python]": {
         "editor.defaultFormatter": "mikoz.black-py"
     },
+    "cSpell.words": [
+        "aiohttp",
+        "levelname",
+        "Picovoice",
+        "pvporcupine",
+        "pvrecorder",
+        "ratecv",
+        "simpleaudio",
+        "tomono"
+    ],
 }
