@@ -10,6 +10,11 @@ for a conversation with a Home-Assistant Voice Assistant
 Required Authentication
 
     - From Picovoice access_key for Porcupine wake word detection
+        (Please note that your Picovoice user is only allowed one unique device.
+        Running the docker image can result in a new device 
+        that will prevent you from using Picovoice
+        See: https://github.com/Picovoice/porcupine/issues/1020)
+
     - From Home-Assistant long-lived access token
 
 Environment Variables:
@@ -45,31 +50,12 @@ Run:
 
     python3 ./voice_pipeline.py --server home-assistant.local --pipeline 'OpenAI' --follow-up
 
-Docker:
-
-    cd /usr/src
-    git clone https://github.com/slackr31337/PorcupinePipeline.git
-
-    cd PorcupinePipeline
-    bash build.sh
-
-    export ACCESS_KEY='my-picovoice-access-key'
-    export TOKEN='my-home-assistant-token'
-
-    docker run --rm \
-        --env SERVER=192.168.0.10 \
-        --env SERVER_PORT=8123 \
-        --env AUDIO_DEVICE=3 \
-        --env ACCESS_KEY=${ACCESS_KEY} \
-        --env TOKEN=${TOKEN} \
-        --device /dev/snd \
-        porcupine-pipeline
 
 Tested with:
 
     wyoming-piper <https://hub.docker.com/r/rhasspy/wyoming-piper>
     wyoming-whisper <https://hub.docker.com/r/rhasspy/wyoming-whisper>
-    Home-Assistant 2023.06.1 <https://www.home-assistant.io/>
+    Home-Assistant 2023.06.1 to 2023.08.2 <https://www.home-assistant.io/>
 
 ## Used code from the following projects
 
@@ -79,3 +65,6 @@ Tested with:
 
     https://github.com/Picovoice/porcupine
     AccessKey obtained from Picovoice Console (https://console.picovoice.ai/)
+
+    https://picovoice.ai/platform/porcupine/
+    https://picovoice.ai/docs/porcupine/

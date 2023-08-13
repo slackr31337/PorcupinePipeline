@@ -1,6 +1,17 @@
 {
     "[python]": {
-        "editor.defaultFormatter": "ms-python.black-formatter"
+        "editor.defaultFormatter": "mikoz.black-py"
     },
-    "python.formatting.provider": "none"
+    "cSpell.words": [
+        "aiohttp",
+        "levelname",
+        "Picovoice",
+        "pvporcupine",
+        "pvrecorder",
+        "ratecv",
+        "SIGTERM",
+        "simpleaudio",
+        "tomono",
+        "websockets"
+    ],
 }
