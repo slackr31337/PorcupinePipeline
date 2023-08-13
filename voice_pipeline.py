@@ -35,6 +35,8 @@ logging.raiseExceptions = False
 _LOGGER = logging.getLogger(__name__)
 
 RESULT = "result"
+ERROR = "error"
+MESSAGE = "message"
 EVENT = "event"
 NAME = "name"
 DATA = "data"
@@ -67,15 +69,16 @@ class PorcupinePipeline:
     _message_id = 1
     _last_ping = 0
     _devices = {}
+    _conversation_id = None
     _followup = False
 
     ##########################################
     def __init__(self, args: argparse.Namespace):
         """Setup Websocket client and audio pipeline"""
-        
+
         signal.signal(signal.SIGINT, self.stop)
         signal.signal(signal.SIGTERM, self.stop)
-        
+
         self._state = State(args=args)
         self._state.running = False
 
@@ -135,22 +138,24 @@ class PorcupinePipeline:
         self._event_loop.run_until_complete(self._start_audio_pipeline())
 
     ##########################################
-    def stop(self) -> None:
+    def stop(self, **args) -> None:
         """Stop audio thread and loop"""
 
         _LOGGER.info("Stopping")
+        if args:
+            _LOGGER.debug(args)
 
         self._state.recording = False
         self._state.running = False
         self._websocket = None
-        
+
         self._audio_thread.join(1)
-        
+
         if hasattr(self._porcupine, "delete"):
             self._porcupine.delete()
-            
+
         self._porcupine = None
-        
+
     ##########################################
     async def _ping(self):
         """Send Ping to HA"""
@@ -163,10 +168,14 @@ class PorcupinePipeline:
             await asyncio.sleep(0.3)
             return
 
-        await self._send_ws({TYPE: "ping"})
-        response = await self._websocket.receive_json(timeout=WEBSOCKET_TIMEOUT)
+        response = await self._send_ws({TYPE: "ping"})
+        if response.get(TYPE) == "pong":
+            self._state.connected = True
 
-        assert response[TYPE] == "pong", response
+        else:
+            self._state.connected = False
+            _LOGGER.error(response)
+
         self._last_ping = int(time.time())
 
     ##########################################
@@ -192,6 +201,10 @@ class PorcupinePipeline:
 
         await self._websocket.send_json(message)
         self._message_id += 1
+
+        response = await self._websocket.receive_json(timeout=WEBSOCKET_TIMEOUT)
+        _LOGGER.debug("send_ws() response=%s", response)
+        return response
 
     ##########################################
     async def _start_audio_pipeline(self):
@@ -244,16 +257,15 @@ class PorcupinePipeline:
             )
 
             # Get list of available pipelines and resolve name
-            await self._send_ws(
+            msg = await self._send_ws(
                 {
                     TYPE: "assist_pipeline/pipeline/list",
                 }
             )
-            msg = await self._websocket.receive_json()
             _LOGGER.debug(msg)
             if RESULT not in msg:
                 _LOGGER.error("FAiled to get audio pipeline from HA")
-                _LOGGER.error("response=%s", msg)
+                _LOGGER.error(msg)
                 return
 
             pipelines = msg[RESULT]["pipelines"]
@@ -295,9 +307,12 @@ class PorcupinePipeline:
                 pipeline_args["pipeline"] = self._pipeline_id
 
             # Send audio pipeline args to HA
-            await self._send_ws(pipeline_args)
-            msg = await self._websocket.receive_json()
-            assert msg["success"], "Pipeline failed to start"
+            msg = await self._send_ws(pipeline_args)
+            if not msg.get("success"):
+                _LOGGER.error(
+                    msg.get(ERROR, {}).get(MESSAGE, "Pipeline failed to start")
+                )
+                return
 
             _LOGGER.info(
                 "Listening and sending audio to voice pipeline %s", self._pipeline_id
@@ -358,6 +373,10 @@ class PorcupinePipeline:
                         event_data.get("message"),
                     )
                     break
+                
+                elif event_type == "intent-end":
+                    intent = event_data.get("intent_output",{})
+                    self._conversation_id = intent.get("conversation_id")
 
                 elif event_type == "stt-end":
                     # HA finished processing speech to text with result
@@ -377,7 +396,8 @@ class PorcupinePipeline:
 
                 else:
                     _LOGGER.debug("event_type=%s", event_type)
-                    _LOGGER.debug("event_data=%s", event_data)
+                    _LOGGER.debug("event=%s", event)
+                    #_LOGGER.debug("event_data=%s", event_data)
 
                 receive_event_task = asyncio.create_task(self._websocket.receive_json())
 
@@ -450,13 +470,21 @@ class PorcupinePipeline:
     async def _play_response(self, url: str) -> None:
         """Play response wav file from HA"""
 
-        request = requests.get(url, timeout=(10, 30))
-        if request.status_code > 299:
+        try:
+            audio_data = None
+            request = requests.get(url, timeout=(10, 15))
+            if request.status_code < 300:
+                audio_data = request.content
+
+        except (TimeoutError, ConnectionError) as err:
+            _LOGGER.error("Exception: %s", err)
+
+        if not audio_data:
             _LOGGER.error("Failed to get audio file at %s", url)
             return
 
         audio = simpleaudio.play_buffer(
-            request.content,
+            audio_data,
             self._state.args.channels,
             self._state.args.width,
             self._state.args.rate,
@@ -541,7 +569,6 @@ def get_porcupine(state: State) -> Porcupine:
 
 ##########################################
 if __name__ == "__main__":
-    
     args = get_cli_args()
     _LOGGER.setLevel(level=logging.DEBUG if args.debug else logging.INFO)
     if args.debug:
@@ -558,6 +585,6 @@ if __name__ == "__main__":
     audio_pipeline = PorcupinePipeline(args)
     with suppress(KeyboardInterrupt):
         audio_pipeline.start()
-    
+
     audio_pipeline.stop()
     sys.exit(0)
