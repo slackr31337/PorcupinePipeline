@@ -25,7 +25,6 @@ import pvporcupine
 from pvrecorder import PvRecorder
 import simpleaudio
 
-
 from cli_args import get_cli_args
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -65,6 +64,7 @@ class PorcupinePipeline:
     _sslcontext = None
     _message_id = 1
     _last_ping = 0
+    _devices = {}
     _followup = False
 
     ##########################################
@@ -78,6 +78,21 @@ class PorcupinePipeline:
         self._event_loop = asyncio.get_event_loop()
 
         self._porcupine = get_porcupine(self._state)
+
+        for idx, device in enumerate(PvRecorder.get_audio_devices()):
+            self._devices[idx] = device
+            _LOGGER.info("Device %d: %s", idx, device)
+
+        _id = args.audio_device
+        audio_device = self._devices.get(_id)
+        if not audio_device:
+            _LOGGER.error("Invalid audio device id: %s", _id)
+            return None
+
+        _LOGGER.info("Using Device %d: %s", _id, audio_device)
+        if args.show_audio_devices:
+            sys.exit(0)
+
         self._audio_thread = threading.Thread(
             target=self.read_audio,
             daemon=True,
@@ -146,8 +161,14 @@ class PorcupinePipeline:
         self._last_ping = int(time.time())
 
     ##########################################
+    def _disconnect(self) -> None:
+        """Websocket disconnect callback"""
+
+        self._state.connected = False
+
+    ##########################################
     async def _send_ws(self, message: dict) -> None:
-        """Send websocket JSON message and increment message ID"""
+        """Send Websocket JSON message and increment message ID"""
 
         if not self._state.connected:
             _LOGGER.error("WS not connected")
@@ -171,7 +192,9 @@ class PorcupinePipeline:
 
         async with aiohttp.ClientSession(connector=self._conn) as session:
             async with session.ws_connect(
-                self.websocket_url, ssl=self._sslcontext, timeout=WEBSOCKET_TIMEOUT
+                self.websocket_url,
+                ssl=self._sslcontext,
+                timeout=WEBSOCKET_TIMEOUT,
             ) as self._websocket:
                 await self._auth_ha()
                 await self.get_audio_pipeline()
@@ -266,7 +289,7 @@ class PorcupinePipeline:
             await self._send_ws(pipeline_args)
             msg = await self._websocket.receive_json()
             assert msg["success"], "Pipeline failed to start"
-            
+
             _LOGGER.info(
                 "Listening and sending audio to voice pipeline %s", self._pipeline_id
             )
@@ -289,8 +312,6 @@ class PorcupinePipeline:
         )
 
         receive_event_task = asyncio.create_task(self._websocket.receive_json())
-        _LOGGER.debug("New audio task %s", receive_event_task)
-
         while self._state.connected:
             audio_chunk = await self._state.audio_queue.get()
             if not audio_chunk:
@@ -439,21 +460,6 @@ def get_porcupine(state: State) -> pvporcupine:
     """Listen for wake word and send audio to Home-Assistant"""
 
     args = state.args
-    devices = {}
-    for idx, device in enumerate(PvRecorder.get_audio_devices()):
-        devices[idx] = device
-        _LOGGER.info("Device %d: %s", idx, device)
-
-    _id = args.audio_device
-    audio_device = devices.get(_id)
-    if not audio_device:
-        _LOGGER.error("Invalid audio device id: %s", _id)
-        return None
-
-    _LOGGER.info("Using Device %d: %s", _id, audio_device)
-    if args.show_audio_devices:
-        sys.exit(0)
-
     if args.keyword_paths is None:
         if args.keywords is None:
             raise ValueError("Either `--keywords` or `--keyword_paths` must be set.")
