@@ -10,6 +10,7 @@
         "pvrecorder",
         "ratecv",
         "simpleaudio",
-        "tomono"
+        "tomono",
+        "websockets"
     ],
 }
