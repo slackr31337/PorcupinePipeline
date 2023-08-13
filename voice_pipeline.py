@@ -8,6 +8,7 @@ import os
 import sys
 import time
 import struct
+import signal
 import logging
 import argparse
 import asyncio
@@ -22,6 +23,7 @@ import warnings
 
 import aiohttp
 import pvporcupine
+from pvporcupine import Porcupine
 from pvrecorder import PvRecorder
 import simpleaudio
 
@@ -70,14 +72,15 @@ class PorcupinePipeline:
     ##########################################
     def __init__(self, args: argparse.Namespace):
         """Setup Websocket client and audio pipeline"""
-
+        
+        signal.signal(signal.SIGINT, self.stop)
+        signal.signal(signal.SIGTERM, self.stop)
+        
         self._state = State(args=args)
         self._state.running = False
 
         self._conn = aiohttp.TCPConnector()
         self._event_loop = asyncio.get_event_loop()
-
-        self._porcupine = get_porcupine(self._state)
 
         for idx, device in enumerate(PvRecorder.get_audio_devices()):
             self._devices[idx] = device
@@ -93,6 +96,7 @@ class PorcupinePipeline:
         if args.show_audio_devices:
             sys.exit(0)
 
+        self._porcupine = get_porcupine(self._state)
         self._audio_thread = threading.Thread(
             target=self.read_audio,
             daemon=True,
@@ -138,10 +142,15 @@ class PorcupinePipeline:
 
         self._state.recording = False
         self._state.running = False
-        self._audio_thread.join(1)
-        self._porcupine = None
         self._websocket = None
-
+        
+        self._audio_thread.join(1)
+        
+        if hasattr(self._porcupine, "delete"):
+            self._porcupine.delete()
+            
+        self._porcupine = None
+        
     ##########################################
     async def _ping(self):
         """Send Ping to HA"""
@@ -456,7 +465,7 @@ class PorcupinePipeline:
 
 
 ##########################################
-def get_porcupine(state: State) -> pvporcupine:
+def get_porcupine(state: State) -> Porcupine:
     """Listen for wake word and send audio to Home-Assistant"""
 
     args = state.args
@@ -531,9 +540,8 @@ def get_porcupine(state: State) -> pvporcupine:
 
 
 ##########################################
-def main() -> None:
-    """Main entry point."""
-
+if __name__ == "__main__":
+    
     args = get_cli_args()
     _LOGGER.setLevel(level=logging.DEBUG if args.debug else logging.INFO)
     if args.debug:
@@ -548,12 +556,8 @@ def main() -> None:
     _LOGGER.debug(args)
 
     audio_pipeline = PorcupinePipeline(args)
-    audio_pipeline.start()
-
-
-##########################################
-if __name__ == "__main__":
     with suppress(KeyboardInterrupt):
-        main()
-
+        audio_pipeline.start()
+    
+    audio_pipeline.stop()
     sys.exit(0)
