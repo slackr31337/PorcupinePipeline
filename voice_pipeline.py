@@ -511,15 +511,23 @@ def get_porcupine(state: State) -> Porcupine:
         if args.keywords is None:
             raise ValueError("Either `--keywords` or `--keyword_paths` must be set.")
 
-        keyword_paths = [pvporcupine.KEYWORD_PATHS[x] for x in args.keywords]
+        # generate keyword_paths from keywords
+        args.keyword_paths = [pvporcupine.KEYWORD_PATHS[x] for x in args.keywords]
 
     else:
-        keyword_paths = args.keyword_paths
+        # generate keywords from keyword_paths
+        args.keywords = list()
+        for item in args.keyword_paths:
+            keyword_phrase_part = os.path.basename(item).replace(".ppn", "").split("_")
+            if len(keyword_phrase_part) > 6:
+                args.keywords.append(" ".join(keyword_phrase_part[0:-6]))
+            else:
+                args.keywords.append(keyword_phrase_part[0])
 
     if args.sensitivities is None:
-        args.sensitivities = [0.5] * len(keyword_paths)
+        args.sensitivities = [0.5] * len(args.keyword_paths)
 
-    if len(keyword_paths) != len(args.sensitivities):
+    if len(args.keyword_paths) != len(args.sensitivities):
         raise ValueError(
             "Number of keywords does not match the number of sensitivities."
         )
@@ -529,7 +537,7 @@ def get_porcupine(state: State) -> Porcupine:
             access_key=args.access_key,
             library_path=args.library_path,
             model_path=args.model_path,
-            keyword_paths=keyword_paths,
+            keyword_paths=args.keyword_paths,
             sensitivities=args.sensitivities,
         )
 
@@ -564,15 +572,7 @@ def get_porcupine(state: State) -> Porcupine:
 
     _LOGGER.info("Porcupine version: %s", porcupine.version)
 
-    keywords = list()
-    for item in keyword_paths:
-        keyword_phrase_part = os.path.basename(item).replace(".ppn", "").split("_")
-        if len(keyword_phrase_part) > 6:
-            keywords.append(" ".join(keyword_phrase_part[0:-6]))
-        else:
-            keywords.append(keyword_phrase_part[0])
-
-    _LOGGER.debug("keywords: %s", keywords)
+    _LOGGER.debug("keywords: %s", args.keywords)
 
     return porcupine
 
