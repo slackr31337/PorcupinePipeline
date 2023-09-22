@@ -63,12 +63,12 @@ class State:
 class HAConnection:
     """
     Class handling all the low level websocket communication with HA.
-    
+
     Clients should only use the 3 high-level public functions for communicating with HA:
         send_and_receive_json(message):  sends JSON message and receives the response
         receive_json(message_id):        receives JSON message with a specific message_id
         send_bytes(bytes):               sends binary message (without response)
-    
+
     Responses are properly dispatched based on their message_id. So the correct response
     will always be received, even if messages arrive in different order. Messages are
     also queued, so receive_json() will succeed even if the message arrived before its call.
@@ -78,17 +78,17 @@ class HAConnection:
         self.__state = state
         self.__websocket_url = websocket_url
         self.__message_id = 1
-        self.__msg_futures: Dict[int,Future] = {}     # message_id => future of receive_json()
-        self.__msg_queues: Dict[int,List[dict]] = {}  # message_id => list of messages
+        self.__msg_futures: Dict[
+            int, Future
+        ] = {}  # message_id => future of receive_json()
+        self.__msg_queues: Dict[int, List[dict]] = {}  # message_id => list of messages
 
         __conn = aiohttp.TCPConnector()
         self.__session = aiohttp.ClientSession(connector=__conn)
 
         sslcontext = None
         if websocket_url.startswith("wss"):
-            sslcontext = ssl.create_default_context(
-                purpose=ssl.Purpose.CLIENT_AUTH
-            )
+            sslcontext = ssl.create_default_context(purpose=ssl.Purpose.CLIENT_AUTH)
 
         self.__websocket_context = self.__session.ws_connect(
             websocket_url,
@@ -96,6 +96,7 @@ class HAConnection:
             timeout=WEBSOCKET_TIMEOUT,
         )
 
+    ##########################################
     # Async context manager
     async def __aenter__(self):
         await self.__session.__aenter__()
@@ -112,6 +113,7 @@ class HAConnection:
 
         self.__receive_loop_task.cancel()
 
+    ##########################################
     async def __receive_loop(self) -> None:
         """Loop that receives and dispatches messages."""
 
@@ -120,20 +122,24 @@ class HAConnection:
             while True:
                 try:
                     msg = await self.__websocket.receive_json(timeout=WEBSOCKET_TIMEOUT)
+
                 except asyncio.TimeoutError:
                     continue
 
                 # fulfill future, if available, otherwise queue the message
-                message_id = msg.get('id', 0)      # can be None for auth messages
+                message_id = msg.get(ID, 0)  # can be None for auth messages
+
                 future = self.__msg_futures.pop(message_id, None)
                 if future:
                     future.set_result(msg)
+
                 else:
                     self.__msg_queues.setdefault(message_id, []).append(msg)
 
         except asyncio.CancelledError as e:
             _LOGGER.debug("WS receive loop finished")
 
+    ##########################################
     async def __authenticate(self) -> None:
         """Authenticate websocket connection to HA"""
 
@@ -159,9 +165,8 @@ class HAConnection:
         )
         self.__state.connected = True
 
-
-    ### Public functions to communicate with HA #############################33
-
+    ##########################################
+    ### Public functions to communicate with HA
     async def send_and_receive_json(self, message: dict) -> dict:
         """Send JSON message and receives the response"""
 
@@ -180,11 +185,13 @@ class HAConnection:
         _LOGGER.debug("send_json() response=%s", response)
         return response
 
+    ##########################################
     async def send_bytes(self, bts: bytes):
         """Send binary message (without response)"""
 
         await self.__websocket.send_bytes(bts)
 
+    ##########################################
     def receive_json(self, message_id: int) -> Future[dict]:
         """Receive JSON message with a specific (previously created) message_id"""
 
@@ -197,16 +204,19 @@ class HAConnection:
             future.set_result(queue.pop(0))
             if not queue:
                 del self.__msg_queues[message_id]
+
         else:
             # No message yet, we store the future to be later fulfilled by receive_loop().
             # To simplify dispatch, it is assumed that at most one active
             # receive_json call exists for each message_id.
-            assert message_id not in self.__msg_futures, f"receive_json already active for message_id {message_id}"
+            assert (
+                message_id not in self.__msg_futures
+            ), f"receive_json already active for message_id {message_id}"
 
             self.__msg_futures[message_id] = future
 
         return future
- 
+
 
 ##########################################
 class PorcupinePipeline:
@@ -218,7 +228,7 @@ class PorcupinePipeline:
     _last_ping = 0
     _recorder: PvRecorder
     _porcupine: Porcupine
-    _devices: Dict[int,str] = {}
+    _devices: Dict[int, str] = {}
     _conversation_id: int
     _followup = False
 
@@ -420,7 +430,7 @@ class PorcupinePipeline:
             await self.stt_task(msg[ID])
 
     ##########################################
-    async def stt_task(self, message_id) -> None:
+    async def stt_task(self, message_id: str) -> None:
         """
         Create task to process speech to text.
 
@@ -458,7 +468,7 @@ class PorcupinePipeline:
             )
 
             if receive_event_future in done:
-                # the only messages reiceived on our message_id should be events
+                # the only messages received on our message_id should be events
                 event = receive_event_future.result()
                 assert EVENT in event
                 event_type = event[EVENT].get(TYPE)
@@ -614,8 +624,10 @@ def get_porcupine(state: State) -> Porcupine:
         args.keywords = list()
         for item in args.keyword_paths:
             keyword_phrase_part = os.path.basename(item).replace(".ppn", "").split("_")
+
             if len(keyword_phrase_part) > 6:
                 args.keywords.append(" ".join(keyword_phrase_part[0:-6]))
+
             else:
                 args.keywords.append(keyword_phrase_part[0])
 
@@ -675,9 +687,11 @@ def get_porcupine(state: State) -> Porcupine:
 ##########################################
 if __name__ == "__main__":
     args = get_cli_args()
+
     _LOGGER.setLevel(level=logging.DEBUG if args.debug else logging.INFO)
     if args.debug:
         log_format = "[%(filename)12s: %(funcName)18s()] %(levelname)5s %(message)s"
+
     else:
         log_format = "%(asctime)s %(levelname)5s %(message)s"
 
