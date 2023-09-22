@@ -62,11 +62,9 @@ ENV/
 env.bak/
 venv.bak/
 .env.sh
-
-# pytype static type analyzer
+test.sh
 .pytype/
-
-# Cython debug symbols
 cython_debug/
+__pycache__
 
 accesskey.yaml
